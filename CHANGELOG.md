@@ -10,6 +10,7 @@
 
 | 版本 | 日期 | 类型 | 主要变化 |
 |---|---|---|---|
+| [v0.1.1-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.1-beta) | 2026-10-09 | beta | 修复桌面 `Can't load widget`：小组件改为静态布局，不再用 `RemoteViews.addView`；今日最多显示 4 节课并显示起止时间 |
 | [v0.1.0-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.0-beta) | 2026-10-09 | beta | 首个测试版：今日课程列表 + 本周概览；修复 `instances` URI 查询报错；固定签名；矢量自适应图标 |
 
 ## 如何发布新版本

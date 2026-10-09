@@ -53,6 +53,7 @@
 
 | 版本 | 类型 | 主要变化 |
 |---|---|---|
+| [v0.1.1-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.1-beta) | beta | 修复桌面 `Can't load widget`：改为静态布局，不再用 `RemoteViews.addView` |
 | [v0.1.0-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.0-beta) | beta | 首个测试版：今日课程 + 本周概览；修复 `instances` URI 查询报错；固定签名；矢量自适应图标 |
 
 完整历史见 [CHANGELOG.md](CHANGELOG.md)。

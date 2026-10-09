@@ -1,6 +1,6 @@
 {
-  "versionName": "0.1.0",
-  "versionCode": 1000,
+  "versionName": "0.1.1",
+  "versionCode": 1010,
   "stage": "beta",
-  "notes": "首个测试版:今日课程列表 + 本周概览小组件;修复 instances URI 查询报错;新增应用图标与固定签名"
+  "notes": "修复桌面显示 Can't load widget:小组件改为静态布局,不再使用 RemoteViews.addView(部分桌面宿主不支持);同时支持今日最多 4 节课并显示起止时间"
 }

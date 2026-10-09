@@ -104,6 +104,10 @@ jobs:
           set -e
           BT=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | head -1)
           "$BT" verify --print-certs "dist/CourseWidget-${{ steps.ver.outputs.tag }}.apk" | head -20
+          # 确认小组件 receiver 真的进了 APK 清单(否则桌面会显示 Can't load widget)
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | head -1)
+          "$AAPT" dump xmltree --file AndroidManifest.xml "dist/CourseWidget-${{ steps.ver.outputs.tag }}.apk" \
+            | grep -i "CourseWidgetProvider\|appwidget" | head -20
 
       - name: 上传 APK 产物
         uses: actions/upload-artifact@v4

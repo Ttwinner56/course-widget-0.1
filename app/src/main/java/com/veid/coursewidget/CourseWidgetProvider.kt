@@ -11,6 +11,7 @@ import android.database.ContentObserver
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
 import java.util.concurrent.Executors
@@ -18,10 +19,11 @@ import java.util.concurrent.Executors
 /**
  * 小组件本体。
  *
- * 职责:
- *  1. 从 ScheduleRepository 取“今日课程 + 本周概览”,渲染进 RemoteViews;
- *  2. 在下一节课开始/明天 0 点时自动刷新;
- *  3. 监听日历数据变化(重新导入 .ics 后立即刷新)。
+ * 渲染策略(重要,别改回动态构建):
+ *  所有行与格子都在 widget_course.xml 里静态声明,这里只用
+ *  setTextViewText / setViewVisibility 两个 API。
+ *  不用 RemoteViews.addView() —— MIUI 等桌面宿主对它的支持很差,
+ *  会直接导致桌面显示 "Can't load widget"。
  */
 class CourseWidgetProvider : AppWidgetProvider() {
 
@@ -53,8 +55,23 @@ class CourseWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_REFRESH = "com.veid.coursewidget.REFRESH"
 
+        private const val TAG = "CourseWidget"
         private const val PREFS = "course_widget"
         private const val KEY_CALENDAR_IDS = "calendar_ids"
+
+        /** 与 widget_course.xml 里静态声明的控件一一对应 */
+        private val ROW_IDS = intArrayOf(R.id.row1, R.id.row2, R.id.row3, R.id.row4)
+        private val ROW_TIME_IDS = intArrayOf(R.id.row1_time, R.id.row2_time, R.id.row3_time, R.id.row4_time)
+        private val ROW_NAME_IDS = intArrayOf(R.id.row1_name, R.id.row2_name, R.id.row3_name, R.id.row4_name)
+        private val ROW_ROOM_IDS = intArrayOf(R.id.row1_room, R.id.row2_room, R.id.row3_room, R.id.row4_room)
+        private val CELL_DAY_IDS = intArrayOf(
+            R.id.cell1_day, R.id.cell2_day, R.id.cell3_day, R.id.cell4_day,
+            R.id.cell5_day, R.id.cell6_day, R.id.cell7_day,
+        )
+        private val CELL_COUNT_IDS = intArrayOf(
+            R.id.cell1_count, R.id.cell2_count, R.id.cell3_count, R.id.cell4_count,
+            R.id.cell5_count, R.id.cell6_count, R.id.cell7_count,
+        )
 
         private val io = Executors.newSingleThreadExecutor()
         private var observer: ContentObserver? = null
@@ -68,7 +85,7 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 .apply()
         }
 
-        /** 返回用户选定的日历;没选过就自动猜一个(名称含“课表”或名称最短的)。 */
+        /** 返回用户选定的日历;没选过就自动猜一个(名称含"课表"或名称最短的)。 */
         fun calendarIds(context: Context): List<Long> {
             val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(KEY_CALENDAR_IDS, null)
@@ -89,24 +106,29 @@ class CourseWidgetProvider : AppWidgetProvider() {
             val ids = manager.getAppWidgetIds(ComponentName(context, CourseWidgetProvider::class.java))
             if (ids.isEmpty()) return
             io.execute {
-                val calendarIds = calendarIds(context)
-                val now = System.currentTimeMillis()
-                val today = ScheduleRepository.today(context, calendarIds, now)
-                val week = ScheduleRepository.week(context, calendarIds, now)
-                val next = ScheduleRepository.nextRefreshAt(context, calendarIds, now)
-                Handler(Looper.getMainLooper()).post {
-                    for (id in ids) {
-                        manager.updateAppWidget(id, buildViews(context, today, week, calendarIds))
+                try {
+                    val calendarIds = calendarIds(context)
+                    val now = System.currentTimeMillis()
+                    val today = ScheduleRepository.today(context, calendarIds, now)
+                    val week = ScheduleRepository.week(context, calendarIds, now)
+                    val next = ScheduleRepository.nextRefreshAt(context, calendarIds, now)
+                    Handler(Looper.getMainLooper()).post {
+                        for (id in ids) {
+                            try {
+                                manager.updateAppWidget(id, buildViews(context, today, week, calendarIds))
+                            } catch (e: Exception) {
+                                Log.e(TAG, "更新小组件失败", e)
+                            }
+                        }
+                        scheduleRefresh(context, next)
                     }
-                    scheduleRefresh(context, next)
+                } catch (e: Exception) {
+                    Log.e(TAG, "刷新失败", e)
                 }
             }
         }
 
-        /** 用户在配置页保存后立即生效。 */
-        fun refreshNow(context: Context) {
-            refreshAll(context)
-        }
+        fun refreshNow(context: Context) = refreshAll(context)
 
         // ------------------------------------------------------------ 渲染
 
@@ -118,122 +140,76 @@ class CourseWidgetProvider : AppWidgetProvider() {
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_course)
 
+            val now = System.currentTimeMillis()
             views.setTextViewText(R.id.header_title, context.getString(R.string.widget_title))
             views.setTextViewText(
                 R.id.header_badge,
-                "${ScheduleRepository.dateLabel(System.currentTimeMillis())} · " +
-                    ScheduleRepository.timeLabel(System.currentTimeMillis()),
+                ScheduleRepository.dateLabel(now) + " · " + ScheduleRepository.timeLabel(now),
             )
 
-            views.removeAllViews(R.id.today_list)
-            views.removeAllViews(R.id.week_row)
+            val noCalendar = calendarIds.isEmpty()
+            val upcoming = today.upcoming.take(ROW_IDS.size)
 
-            val noPermission = calendarIds.isEmpty()
-            val upcoming = today.upcoming.take(ScheduleRepository.MAX_TODAY_ROWS)
-
-            if (noPermission) {
-                views.setViewVisibility(R.id.today_list, View.GONE)
-                views.setViewVisibility(R.id.today_empty, View.VISIBLE)
-                views.setTextViewText(R.id.today_empty, context.getString(R.string.widget_need_config))
-            } else if (today.error != null && today.all.isEmpty()) {
-                // 查询失败且无数据:明确告知原因,不要伪装成“今天没课”
-                views.setViewVisibility(R.id.today_list, View.GONE)
-                views.setViewVisibility(R.id.today_empty, View.VISIBLE)
+            // ---- 今日课程行:逐行设文本与可见性,不用 addView ----
+            for (i in ROW_IDS.indices) {
+                val event = upcoming.getOrNull(i)
+                if (event == null) {
+                    views.setViewVisibility(ROW_IDS[i], View.GONE)
+                    continue
+                }
+                views.setViewVisibility(ROW_IDS[i], View.VISIBLE)
                 views.setTextViewText(
-                    R.id.today_empty,
-                    context.getString(R.string.widget_query_failed_fmt, today.error),
+                    ROW_TIME_IDS[i],
+                    ScheduleRepository.timeLabel(event.begin) + "\n" + ScheduleRepository.timeLabel(event.end),
                 )
-            } else if (upcoming.isEmpty()) {
-                views.setViewVisibility(R.id.today_list, View.GONE)
-                views.setViewVisibility(R.id.today_empty, View.VISIBLE)
-                views.setTextViewText(
-                    R.id.today_empty,
-                    if (today.all.isEmpty()) context.getString(R.string.widget_no_class)
-                    else context.getString(R.string.widget_all_done),
-                )
-            } else {
-                views.setViewVisibility(R.id.today_empty, View.GONE)
-                views.setViewVisibility(R.id.today_list, View.VISIBLE)
-                for (event in upcoming) {
-                    views.addView(R.id.today_list, buildRow(context, event))
+                views.setTextViewText(ROW_NAME_IDS[i], event.title)
+                if (event.location.isBlank()) {
+                    views.setViewVisibility(ROW_ROOM_IDS[i], View.GONE)
+                } else {
+                    views.setViewVisibility(ROW_ROOM_IDS[i], View.VISIBLE)
+                    views.setTextViewText(ROW_ROOM_IDS[i], event.location)
                 }
             }
 
-            for (index in 0..6) {
-                views.addView(R.id.week_row, buildCell(context, index, week[index]))
+            // ---- 空状态 / 错误提示 ----
+            val message: String? = when {
+                noCalendar -> context.getString(R.string.widget_need_config)
+                today.error != null && today.all.isEmpty() ->
+                    context.getString(R.string.widget_query_failed_fmt, today.error)
+                today.all.isEmpty() -> context.getString(R.string.widget_no_class)
+                upcoming.isEmpty() -> context.getString(R.string.widget_all_done)
+                else -> null
+            }
+            if (message != null) {
+                views.setViewVisibility(R.id.today_empty, View.VISIBLE)
+                views.setTextViewText(R.id.today_empty, message)
+            } else {
+                views.setViewVisibility(R.id.today_empty, View.GONE)
             }
 
-            // 点顶部标题 -> 打开今天的日历日视图
+            // ---- 本周概览 ----
+            for (i in 0..6) {
+                val info = week.getOrNull(i) ?: ScheduleRepository.DayInfo(0, null)
+                views.setTextViewText(CELL_DAY_IDS[i], DAY_LABELS[i])
+                views.setTextViewText(CELL_COUNT_IDS[i], if (info.count == 0) "—" else info.count.toString())
+            }
+
+            // 点标题 -> 打开今天的日历日视图
             views.setOnClickPendingIntent(
                 R.id.header_title,
                 PendingIntent.getActivity(
                     context, 100,
-                    ScheduleRepository.dayViewIntent(System.currentTimeMillis()),
+                    ScheduleRepository.dayViewIntent(now),
                     pendingFlags(),
                 ),
             )
             return views
         }
 
-        private fun buildRow(context: Context, event: ScheduleRepository.ClassEvent): RemoteViews {
-            val row = RemoteViews(context.packageName, R.layout.widget_row_class)
-            row.setTextViewText(R.id.row_time, ScheduleRepository.timeLabel(event.begin))
-            row.setTextViewText(R.id.row_end, ScheduleRepository.timeLabel(event.end))
-            row.setTextViewText(R.id.row_name, event.title)
-            row.setTextViewText(R.id.row_room, event.location.ifBlank { "" })
-            row.setViewVisibility(
-                R.id.row_room,
-                if (event.location.isBlank()) View.GONE else View.VISIBLE,
-            )
-            return row
-        }
-
-        private fun buildCell(context: Context, index: Int, info: ScheduleRepository.DayInfo): RemoteViews {
-            val cell = RemoteViews(context.packageName, R.layout.widget_week_cell)
-            val isToday = index == ScheduleRepository.todayIndex()
-            cell.setTextViewText(R.id.cell_day, DAY_LABELS[index])
-            cell.setTextViewText(
-                R.id.cell_count,
-                if (info.count == 0) "—" else info.count.toString(),
-            )
-            @Suppress("DEPRECATION")
-            cell.setTextColor(R.id.cell_day, color(context, if (isToday) R.color.accent else R.color.text_secondary))
-            @Suppress("DEPRECATION")
-            cell.setTextColor(
-                R.id.cell_count,
-                color(
-                    context,
-                    when {
-                        isToday -> R.color.accent
-                        info.count == 0 -> R.color.text_secondary
-                        else -> R.color.text_primary
-                    },
-                ),
-            )
-            if (isToday) {
-                cell.setInt(R.id.cell_root, "setBackgroundResource", R.drawable.cell_today_bg)
-            } else {
-                cell.setInt(R.id.cell_root, "setBackgroundResource", android.R.color.transparent)
-            }
-            return cell
-        }
-
-        @Suppress("DEPRECATION")
-        private fun color(context: Context, resId: Int): Int =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                context.resources.getColor(resId, context.theme)
-            } else {
-                context.resources.getColor(resId)
-            }
-
         // ------------------------------------------------------------ 定时刷新
 
         private fun pendingFlags(): Int =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
         private fun scheduleRefresh(context: Context, atMillis: Long) {
             val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -245,15 +221,12 @@ class CourseWidgetProvider : AppWidgetProvider() {
             } else {
                 true
             }
-
             if (canBeExact) {
-                // 精确到"下一节课开始";低电量下系统可能延后,所以加一个宽松兜底
                 alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending)
             } else {
-                // 没有精确闹钟权限(国产 ROM 常见),退化为不精确刷新,最多晚几分钟
                 alarm.set(AlarmManager.RTC, atMillis, pending)
             }
-            // 兜底:无论精确与否,5 分钟后都再刷一次
+            // 兜底:5 分钟后再刷一次
             alarm.set(AlarmManager.RTC, atMillis + 5 * 60 * 1000, pending)
         }
 
@@ -278,7 +251,7 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 )
                 observer = obs
             } catch (e: SecurityException) {
-                // 没权限时静默跳过,等用户授权后 onUpdate 会再试
+                // 没权限时静默跳过,授权后 onUpdate 会再试
             }
         }
 

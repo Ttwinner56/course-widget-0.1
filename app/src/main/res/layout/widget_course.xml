@@ -1,95 +1,143 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 小组件根布局:上半是今日课程列表,下半是本周概览 -->
+<!--
+  小组件根布局:今日课程(最多 4 行) + 本周概览(7 格)
+
+  兼容性设计(关键,别随意改):
+  1. 所有行/格子都静态展开写死,不用 RemoteViews.addView()
+     —— MIUI 等宿主对 addView 支持很差,会直接导致 "Can't load widget"
+  2. 不用 <include>,它会把 ID 换成 include 的 ID,RemoteViews 找不到子控件
+  3. 每行只有一层嵌套(行容器 + 两个 TextView),顶层不嵌套可比大小的布局
+  4. 列宽用 layout_weight="1",但不配合 0dp 撑高度
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@drawable/widget_bg"
+    android:orientation="vertical"
     android:padding="@dimen/widget_pad">
 
-    <!-- 顶栏 -->
-    <LinearLayout
+    <TextView
+        android:id="@+id/header_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="@string/widget_title"
+        android:textColor="@color/text_primary"
+        android:textSize="@dimen/widget_title_size"
+        android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/header_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:text="@string/widget_title"
-            android:textColor="@color/text_primary"
-            android:textSize="@dimen/widget_title_size"
-            android:textStyle="bold" />
+    <TextView
+        android:id="@+id/header_badge"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/text_secondary"
+        android:textSize="@dimen/widget_day_label_size" />
 
-        <TextView
-            android:id="@+id/header_badge"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/badge_bg"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:maxLines="1"
-            android:textColor="@color/accent"
-            android:textSize="@dimen/widget_day_label_size" />
+    <!-- ======================= 课程行 1 ======================= -->
+    <LinearLayout
+        android:id="@+id/row1"
+        style="@style/WidgetRow">
+        <TextView android:id="@+id/row1_time" style="@style/WidgetRowTime" />
+        <LinearLayout style="@style/WidgetRowRight">
+            <TextView android:id="@+id/row1_name" style="@style/WidgetRowName" />
+            <TextView android:id="@+id/row1_room" style="@style/WidgetRowRoom" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- 今日课程列表(动态填充) -->
+    <!-- ======================= 课程行 2 ======================= -->
     <LinearLayout
-        android:id="@+id/today_list"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="@dimen/widget_gap"
-        android:orientation="vertical" />
+        android:id="@+id/row2"
+        style="@style/WidgetRow">
+        <TextView android:id="@+id/row2_time" style="@style/WidgetRowTime" />
+        <LinearLayout style="@style/WidgetRowRight">
+            <TextView android:id="@+id/row2_name" style="@style/WidgetRowName" />
+            <TextView android:id="@+id/row2_room" style="@style/WidgetRowRoom" />
+        </LinearLayout>
+    </LinearLayout>
 
-    <!-- 今日占位提示(无课/无权限时显示) -->
+    <!-- ======================= 课程行 3 ======================= -->
+    <LinearLayout
+        android:id="@+id/row3"
+        style="@style/WidgetRow">
+        <TextView android:id="@+id/row3_time" style="@style/WidgetRowTime" />
+        <LinearLayout style="@style/WidgetRowRight">
+            <TextView android:id="@+id/row3_name" style="@style/WidgetRowName" />
+            <TextView android:id="@+id/row3_room" style="@style/WidgetRowRoom" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ======================= 课程行 4 ======================= -->
+    <LinearLayout
+        android:id="@+id/row4"
+        style="@style/WidgetRow">
+        <TextView android:id="@+id/row4_time" style="@style/WidgetRowTime" />
+        <LinearLayout style="@style/WidgetRowRight">
+            <TextView android:id="@+id/row4_name" style="@style/WidgetRowName" />
+            <TextView android:id="@+id/row4_room" style="@style/WidgetRowRoom" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 无课/错误提示 -->
     <TextView
         android:id="@+id/today_empty"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="@dimen/widget_gap"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
         android:gravity="center"
+        android:lineSpacingExtra="2dp"
         android:text="@string/widget_no_class"
         android:textColor="@color/text_secondary"
         android:textSize="@dimen/widget_row_name_size"
         android:visibility="gone" />
 
-    <!-- 本周概览 -->
+    <!-- ======================= 本周概览 7 格 ======================= -->
     <LinearLayout
+        android:id="@+id/week_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/widget_gap"
-        android:orientation="vertical">
+        android:layout_marginTop="6dp"
+        android:baselineAligned="false"
+        android:orientation="horizontal">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/widget_stroke" />
+        <LinearLayout android:id="@+id/cell1" style="@style/WidgetWeekCell">
+            <TextView android:id="@+id/cell1_day" style="@style/WidgetWeekDay" />
+            <TextView android:id="@+id/cell1_count" style="@style/WidgetWeekCount" />
+        </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:letterSpacing="0.05"
-            android:text="@string/widget_week_overview"
-            android:textColor="@color/text_secondary"
-            android:textSize="@dimen/widget_day_label_size" />
+        <LinearLayout android:id="@+id/cell2" style="@style/WidgetWeekCell">
+            <TextView android:id="@+id/cell2_day" style="@style/WidgetWeekDay" />
+            <TextView android:id="@+id/cell2_count" style="@style/WidgetWeekCount" />
+        </LinearLayout>
 
-        <LinearLayout
-            android:id="@+id/week_row"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:baselineAligned="false"
-            android:orientation="horizontal" />
+        <LinearLayout android:id="@+id/cell3" style="@style/WidgetWeekCell">
+            <TextView android:id="@+id/cell3_day" style="@style/WidgetWeekDay" />
+            <TextView android:id="@+id/cell3_count" style="@style/WidgetWeekCount" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/cell4" style="@style/WidgetWeekCell">
+            <TextView android:id="@+id/cell4_day" style="@style/WidgetWeekDay" />
+            <TextView android:id="@+id/cell4_count" style="@style/WidgetWeekCount" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/cell5" style="@style/WidgetWeekCell">
+            <TextView android:id="@+id/cell5_day" style="@style/WidgetWeekDay" />
+            <TextView android:id="@+id/cell5_count" style="@style/WidgetWeekCount" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/cell6" style="@style/WidgetWeekCell">
+            <TextView android:id="@+id/cell6_day" style="@style/WidgetWeekDay" />
+            <TextView android:id="@+id/cell6_count" style="@style/WidgetWeekCount" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/cell7" style="@style/WidgetWeekCell">
+            <TextView android:id="@+id/cell7_day" style="@style/WidgetWeekDay" />
+            <TextView android:id="@+id/cell7_count" style="@style/WidgetWeekCount" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
