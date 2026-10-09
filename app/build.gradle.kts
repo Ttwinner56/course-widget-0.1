@@ -17,23 +17,54 @@ val appVersionName: String = (project.findProperty("versionName") as String?) ?:
 val appVersionCode: Int = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: jsonVersionCode ?: 1
 
 // ---------------------------------------------------------------- 签名
-// 固定密钥通过 Gradle 属性传入(CI 里来自 GitHub Secrets)。
-// release 必须有密钥,否则产出的 APK 装不上 —— 这里直接报错,避免静默产出废包。
-val storeFilePath: String? = project.findProperty("signing.storeFile") as String?
-val storePassword: String? = project.findProperty("signing.storePassword") as String?
-val keyAlias: String? = project.findProperty("signing.keyAlias") as String?
-val keyPassword: String? = project.findProperty("signing.keyPassword") as String?
+// 固定密钥。口令来源(优先级):
+//   1. gradle.properties / -P 传入的 signing.* (CI 用这个)
+//   2. keystore/keystore.properties (本地开发用,不进仓库)
+//   3. 兜底为本工程的固定口令
+// release 缺密钥会直接报错,避免静默产出装不上的包。
+val keystorePropsFile = rootProject.file("keystore/keystore.properties")
+val keystoreProps = java.util.Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+
+fun signingValue(name: String, fallback: String? = null): String? =
+    (project.findProperty("signing.$name") as String?)
+        ?: keystoreProps.getProperty(name)
+        ?: fallback
+
+// 本工程的固定签名口令(证书指纹见 RELEASE.md)
+val FIXED_STORE_PASSWORD = "CourseWidget2026!"
+val FIXED_KEY_ALIAS = "coursewidget"
+val FIXED_KEY_PASSWORD = "CourseWidget2026!"
+
+// storeFile 必须显式给出(CI 指向还原出来的密钥库,本地默认用仓库里的 keystore/)
+val storeFilePath: String? = signingValue("storeFile")
+    ?: listOf("keystore/coursewidget.p12", "coursewidget.p12")
+        .map { rootProject.file(it) }
+        .firstOrNull { it.exists() }
+        ?.absolutePath
+val storePassword: String? = signingValue("storePassword", FIXED_STORE_PASSWORD)
+val keyAlias: String? = signingValue("keyAlias", FIXED_KEY_ALIAS)
+val keyPassword: String? = signingValue("keyPassword", FIXED_KEY_PASSWORD)
 val hasSigning = storeFilePath != null && storePassword != null && keyAlias != null && keyPassword != null
+
+// 签名时用到的密钥库文件(绝对路径直接采用,相对路径按仓库根解析)
+val keystoreFile: java.io.File? = storeFilePath?.let { path ->
+    val f = java.io.File(path)
+    if (f.isAbsolute) f else rootProject.file(path)
+}
 
 val needsReleaseBuild = gradle.startParameter.taskNames.any {
     it.contains("Release", ignoreCase = true)
 }
 if (needsReleaseBuild && !hasSigning) {
     throw GradleException(
-        "release 构建缺少签名密钥。\n" +
-            "CI 上请配置 GitHub Secrets: KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD;\n" +
-            "本地请先运行: powershell -ExecutionPolicy Bypass -File gen-keystore.ps1 然后使用 build-local.ps1。"
+        "release 构建缺少签名密钥。CI 请检查 Secret KEYSTORE_BASE64;" +
+            "本地请先运行 gen-keystore.ps1"
     )
+}
+if (keystoreFile != null) {
+    logger.lifecycle("签名密钥: " + keystoreFile.name + " (alias=" + keyAlias + ")")
 }
 
 android {
@@ -56,10 +87,10 @@ android {
     signingConfigs {
         if (hasSigning) {
             create("fixed") {
-                storeFile = file(storeFilePath!!)
-                storePassword = storePassword
-                keyAlias = keyAlias
-                keyPassword = keyPassword
+                storeFile = keystoreFile!!
+                this.storePassword = storePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
             }
         }
     }
