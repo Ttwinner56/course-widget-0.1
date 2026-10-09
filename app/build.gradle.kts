@@ -37,18 +37,24 @@ val FIXED_STORE_PASSWORD = "CourseWidget2026!"
 val FIXED_KEY_ALIAS = "coursewidget"
 val FIXED_KEY_PASSWORD = "CourseWidget2026!"
 
-val storeFilePath: String? = signingValue("storeFile")
+// 变量名刻意用 ksp/keystore 前缀,避免与外层变量同名遮蔽 ——
+// 之前写成 storePassword = storePassword 时,右侧被解析成本地变量,
+// 导致 SigningConfig 里的口令始终是 null(报 "missing required property")。
+val keystorePath: String? = signingValue("storeFile")
     ?: listOf("keystore/coursewidget.p12", "coursewidget.p12")
         .map { rootProject.file(it) }
         .firstOrNull { it.exists() }
         ?.absolutePath
-val storePassword: String? = signingValue("storePassword") ?: FIXED_STORE_PASSWORD
-val keyAlias: String? = signingValue("keyAlias") ?: FIXED_KEY_ALIAS
-val keyPassword: String? = signingValue("keyPassword") ?: FIXED_KEY_PASSWORD
-val hasSigning = storeFilePath != null && storePassword != null && keyAlias != null && keyPassword != null
+val keystoreStorePassword: String? = signingValue("storePassword") ?: FIXED_STORE_PASSWORD
+val keystoreKeyAlias: String? = signingValue("keyAlias") ?: FIXED_KEY_ALIAS
+val keystoreKeyPassword: String? = signingValue("keyPassword") ?: FIXED_KEY_PASSWORD
+val hasSigning = keystorePath != null &&
+    keystoreStorePassword != null &&
+    keystoreKeyAlias != null &&
+    keystoreKeyPassword != null
 
 // 绝对路径直接采用,相对路径按仓库根解析
-val keystoreFile: File? = storeFilePath?.let { path ->
+val keystoreFile: File? = keystorePath?.let { path ->
     val f = File(path)
     if (f.isAbsolute) f else rootProject.file(path)
 }
@@ -63,7 +69,7 @@ if (needsReleaseBuild && !hasSigning) {
     )
 }
 if (keystoreFile != null) {
-    logger.lifecycle("签名密钥: " + keystoreFile.name + " (alias=" + keyAlias + ")")
+    logger.lifecycle("签名密钥: " + keystoreFile.name + " (alias=" + keystoreKeyAlias + ")")
 }
 
 android {
@@ -82,9 +88,9 @@ android {
         if (hasSigning) {
             create("fixed") {
                 storeFile = keystoreFile
-                this.storePassword = storePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
+                storePassword = keystoreStorePassword
+                keyAlias = keystoreKeyAlias
+                keyPassword = keystoreKeyPassword
             }
         }
     }

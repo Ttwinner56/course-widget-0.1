@@ -1,7 +1,6 @@
 package com.veid.coursewidget
 
 import android.content.ContentUris
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.provider.CalendarContract
@@ -310,16 +309,6 @@ object ScheduleRepository {
         intent.putExtra("beginTime", System.currentTimeMillis())
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return intent
-    }
-
-    /** 供未来扩展:把一条课程写回日历(当前未启用)。 */
-    @Suppress("unused")
-    fun insertEvent(context: Context, calendarId: Long, values: ContentValues): Long? {
-        return try {
-            context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLong()
-        } catch (e: SecurityException) {
-            null
-        }
     }
 
     private const val TAG = "ScheduleRepository"
