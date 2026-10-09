@@ -9,6 +9,8 @@
     <string name="widget_need_permission">需要日历权限</string>
     <string name="widget_need_permission_hint">点此授权读取日历</string>
     <string name="widget_need_config">点此选择课表日历</string>
+    <string name="widget_query_failed">读取日历失败</string>
+    <string name="widget_query_failed_fmt">读取日历失败\n%1$s</string>
     <string name="widget_week_overview">本周概览</string>
     <string name="widget_week_fmt">第%1$d周</string>
     <string name="widget_left_fmt">今天还有 %1$d 节</string>

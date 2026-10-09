@@ -36,6 +36,8 @@ object ScheduleRepository {
         val all: List<ClassEvent>,
         val upcoming: List<ClassEvent>,
         val finishedCount: Int,
+        /** 查询失败时的错误描述(null 表示正常)。 */
+        val error: String? = null,
     )
 
     /** 一周里的某一天:课程数 + 当天第一节课的开始时间(没有课则为 null)。 */
@@ -125,8 +127,21 @@ object ScheduleRepository {
 
     // ---------------------------------------------------------------- 查询事件
 
+    /** 最近一次查询失败的原因,供界面显示(不要静默失败)。 */
+    @Volatile
+    var lastQueryError: String? = null
+        private set
+
+    /**
+     * 查询 [begin, end) 区间内的日程实例。
+     *
+     * 注意:必须使用官方 helper [CalendarContract.Instances.query],它会拼出
+     * `content://com.android.calendar/instances/when/{begin}/{end}`。
+     * 直接用基址 [CalendarContract.Instances.CONTENT_URI] 查询会被日历提供者拒绝,
+     * 报 "Unknown URL .../instances/when"(缺少 begin/end 两段)。
+     */
     private fun queryEvents(context: Context, calendarIds: List<Long>, begin: Long, end: Long): List<ClassEvent> {
-        if (calendarIds.isEmpty()) return emptyList()
+        if (calendarIds.isEmpty() || begin >= end) return emptyList()
 
         val projection = arrayOf(
             CalendarContract.Instances.EVENT_ID,
@@ -137,45 +152,114 @@ object ScheduleRepository {
             CalendarContract.Instances.ALL_DAY,
         )
         val idList = calendarIds.joinToString(",")
-        val selection = "${CalendarContract.Instances.CALENDAR_ID} IN ($idList)" +
-            " AND ${CalendarContract.Instances.END} > ?" +
-            " AND ${CalendarContract.Instances.BEGIN} < ?"
-        val args = arrayOf(begin.toString(), end.toString())
+        val selection = "${CalendarContract.Instances.CALENDAR_ID} IN ($idList)"
 
         val out = mutableListOf<ClassEvent>()
         try {
-            context.contentResolver.query(
-                CalendarContract.Instances.CONTENT_URI,
-                projection,
-                selection,
-                args,
-                "${CalendarContract.Instances.BEGIN} ASC",
-            )?.use { c ->
-                while (c.moveToNext()) {
-                    val title = c.getString(1) ?: continue
-                    if (TextUtils.isEmpty(title)) continue
-                    out += ClassEvent(
-                        id = c.getLong(0),
-                        title = title,
-                        location = c.getString(2) ?: "",
-                        begin = c.getLong(3),
-                        end = c.getLong(4),
-                        allDay = c.getInt(5) == 1,
-                    )
-                }
-            }
+            // 官方 helper:内部构造 instances/when/{begin}/{end}
+            val cursor = CalendarContract.Instances.query(context.contentResolver, projection, begin, end)
+            cursor.use { readInstances(it, out) }
+            lastQueryError = null
         } catch (e: SecurityException) {
+            lastQueryError = "没有日历读取权限"
             Log.w(TAG, "查询日程被拒绝", e)
+        } catch (e: Exception) {
+            // 某些第三方日历提供者对 instances 的实现不完整,退化为直接查 Events 表
+            Log.w(TAG, "instances 查询失败,改用 events 表", e)
+            lastQueryError = "${e.javaClass.simpleName}: ${e.message}"
+            readFromEventsTable(context, out, selection, begin, end)
         }
         return out
     }
 
+    /** 兜底:不展开重复日程,只按 DTSTART 取区间内的事件。 */
+    private fun readFromEventsTable(
+        context: Context,
+        out: MutableList<ClassEvent>,
+        calendarFilter: String,
+        begin: Long,
+        end: Long,
+    ) {
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.EVENT_LOCATION,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.ALL_DAY,
+        )
+        try {
+            context.contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                projection,
+                "$calendarFilter AND ${CalendarContract.Events.DTSTART} >= ?" +
+                    " AND ${CalendarContract.Events.DTSTART} < ?",
+                arrayOf(begin.toString(), end.toString()),
+                "${CalendarContract.Events.DTSTART} ASC",
+            )?.use { c ->
+                val iId = c.getColumnIndex(CalendarContract.Events._ID)
+                val iTitle = c.getColumnIndex(CalendarContract.Events.TITLE)
+                val iLoc = c.getColumnIndex(CalendarContract.Events.EVENT_LOCATION)
+                val iStart = c.getColumnIndex(CalendarContract.Events.DTSTART)
+                val iEnd = c.getColumnIndex(CalendarContract.Events.DTEND)
+                val iAllDay = c.getColumnIndex(CalendarContract.Events.ALL_DAY)
+                while (c.moveToNext()) {
+                    val title = if (iTitle >= 0) c.getString(iTitle) else null
+                    if (TextUtils.isEmpty(title)) continue
+                    val start = if (iStart >= 0) c.getLong(iStart) else 0L
+                    out += ClassEvent(
+                        id = if (iId >= 0) c.getLong(iId) else 0L,
+                        title = title!!,
+                        location = if (iLoc >= 0) (c.getString(iLoc) ?: "") else "",
+                        begin = start,
+                        end = if (iEnd >= 0 && !c.isNull(iEnd)) c.getLong(iEnd) else start,
+                        allDay = iAllDay >= 0 && c.getInt(iAllDay) == 1,
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            lastQueryError = "${e.javaClass.simpleName}: ${e.message}"
+            Log.w(TAG, "events 表查询也失败", e)
+        }
+    }
+
+    /** 解析 instances 查询结果。列名用 Instances 的常量。 */
+    private fun readInstances(
+        cursor: android.database.Cursor?,
+        out: MutableList<ClassEvent>,
+    ) {
+        if (cursor == null) return
+        val iId = cursor.getColumnIndex(CalendarContract.Instances.EVENT_ID)
+        val iTitle = cursor.getColumnIndex(CalendarContract.Instances.TITLE)
+        val iLoc = cursor.getColumnIndex(CalendarContract.Instances.EVENT_LOCATION)
+        val iBegin = cursor.getColumnIndex(CalendarContract.Instances.BEGIN)
+        val iEnd = cursor.getColumnIndex(CalendarContract.Instances.END)
+        val iAllDay = cursor.getColumnIndex(CalendarContract.Instances.ALL_DAY)
+        if (iTitle < 0 || iBegin < 0) {
+            lastQueryError = "日历提供者返回的列不完整"
+            return
+        }
+        while (cursor.moveToNext()) {
+            val title = cursor.getString(iTitle)
+            if (TextUtils.isEmpty(title)) continue
+            out += ClassEvent(
+                id = if (iId >= 0) cursor.getLong(iId) else 0L,
+                title = title!!,
+                location = if (iLoc >= 0) (cursor.getString(iLoc) ?: "") else "",
+                begin = cursor.getLong(iBegin),
+                end = if (iEnd >= 0) cursor.getLong(iEnd) else cursor.getLong(iBegin),
+                allDay = iAllDay >= 0 && cursor.getInt(iAllDay) == 1,
+            )
+        }
+    }
+
     /** 今天(整天)的课程。allDay 事件视为无效课表数据,直接忽略。 */
     fun today(context: Context, calendarIds: List<Long>, now: Long = System.currentTimeMillis()): TodayInfo {
-        val events = queryEvents(context, calendarIds, startOfDay(now), endOfDay(now))
+        val dayStart = startOfDay(now)
+        val events = queryEvents(context, calendarIds, dayStart, dayStart + DAY_MILLIS)
             .filter { !it.allDay }
         val upcoming = events.filter { it.end > now }
-        return TodayInfo(events, upcoming, events.size - upcoming.size)
+        return TodayInfo(events, upcoming, events.size - upcoming.size, lastQueryError)
     }
 
     /** 本周概览:从周一到周日每天的课程数。 */

@@ -1,0 +1,13 @@
+# 构建产物与 IDE 文件,不进仓库
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+*.iml
+.idea/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.log

@@ -135,6 +135,14 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(R.id.today_list, View.GONE)
                 views.setViewVisibility(R.id.today_empty, View.VISIBLE)
                 views.setTextViewText(R.id.today_empty, context.getString(R.string.widget_need_config))
+            } else if (today.error != null && today.all.isEmpty()) {
+                // 查询失败且无数据:明确告知原因,不要伪装成“今天没课”
+                views.setViewVisibility(R.id.today_list, View.GONE)
+                views.setViewVisibility(R.id.today_empty, View.VISIBLE)
+                views.setTextViewText(
+                    R.id.today_empty,
+                    context.getString(R.string.widget_query_failed_fmt, today.error),
+                )
             } else if (upcoming.isEmpty()) {
                 views.setViewVisibility(R.id.today_list, View.GONE)
                 views.setViewVisibility(R.id.today_empty, View.VISIBLE)
