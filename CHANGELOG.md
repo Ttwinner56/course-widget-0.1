@@ -10,6 +10,7 @@
 
 | 版本 | 日期 | 类型 | 主要变化 |
 |---|---|---|---|
+| [v0.1.5-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.5-beta) | 2026-10-09 | beta | 修复"刚添加正常、几秒后变成没有课程数据"：根因是自动选日历的最后一级兜底会挑中**显示名为空**的日历；改为候选日历逐个用"本周是否真有日程"验证并缓存结果，不再每次刷新重新猜；配置页把空名日历显示为"(未命名日历)" |
 | [v0.1.4-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.4-beta) | 2026-10-09 | beta | 修复 0.1.2/0.1.3 的 `Can't load widget`：移除布局里的裸 `<View>` 占位符（宿主加载布局阶段会失败）与 `setTextColor` 上色（动作阶段可能失败），改用纯文字方案；新增兜底界面，失败时显示错误原因而非空白 |
 | [v0.1.3-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.3-beta) | 2026-10-09 | beta | 修复读不到课程数据：自动识别课表日历改用"本周日程条数最多"启发式；配置页显示每个日历的条数并按条数排序；无数据时显示当前读取的日历名 |
 | [v0.1.2-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.2-beta) | 2026-10-09 | beta | 字号调大；今日显示全部课程（已结束带 `✓` 且浅色）；周概览空课改圆点（原破折号与"一"混淆）；周概览固定底部；整周无数据时提示导入/选日历 |

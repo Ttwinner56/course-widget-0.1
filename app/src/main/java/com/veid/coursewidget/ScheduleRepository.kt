@@ -99,19 +99,20 @@ object ScheduleRepository {
 
     /**
      * 猜测哪个系统日历是课表,按优先级:
-     * 1) 名称里含“课表”;
+     * 1) 名称(非空)里含“课表”;
      * 2) 本周日程条数最多的那个(最可靠 —— 课表是一堆密集的定时日程);
-     * 3) 名称最短的(导入的日历通常命名简单)。
+     * 3) 都不成立时返回空,交给界面提示用户手动选择。
      *
-     * 早期版本只用 1) 和 3),在用户把课表导入到别的名字的日历时会猜错,
-     * 导致小组件一直显示“今天没课”。加入条数启发式后基本不会错。
+     * 注意:早期版本第 3 步是“取名称最短的日历”,这个兜底是错的 ——
+     * 系统里常有显示名为空字符串的日历,长度 0 永远最短,于是会去读一个空日历,
+     * 表现为“刚添加时正常,几秒后变成没有课程数据”。
      */
     fun guessCalendarIds(context: Context, now: Long = System.currentTimeMillis()): List<Long> {
-        val weekStart = startOfWeek(now)
-        val infos = listCalendarsWithCounts(context, weekStart, weekStart + 7 * DAY_MILLIS)
+        val (begin, end) = currentWeekRange(now)
+        val infos = listCalendarsWithCounts(context, begin, end)
         if (infos.isEmpty()) return emptyList()
 
-        infos.filter { it.name.contains(CALENDAR_DISPLAY_NAME) }
+        infos.filter { it.name.isNotBlank() && it.name.contains(CALENDAR_DISPLAY_NAME) }
             .takeIf { it.isNotEmpty() }
             ?.let { return it.map { c -> c.id } }
 
@@ -119,7 +120,31 @@ object ScheduleRepository {
             ?.takeIf { it.weekCount > 0 }
             ?.let { return listOf(it.id) }
 
-        return listOf(infos.minByOrNull { it.name.length }!!.id)
+        return emptyList()
+    }
+
+    /** 统计给定日历在 [begin, end) 内的日程条数(用于验证候选日历是否真的有数据)。 */
+    fun countEvents(context: Context, calendarIds: List<Long>, begin: Long, end: Long): Int {
+        if (calendarIds.isEmpty() || begin >= end) return 0
+        return try {
+            val cursor = CalendarContract.Instances.query(
+                context.contentResolver,
+                arrayOf(CalendarContract.Instances._ID, CalendarContract.Instances.CALENDAR_ID),
+                begin,
+                end,
+            )
+            cursor.use { c ->
+                val idx = c.getColumnIndex(CalendarContract.Instances.CALENDAR_ID)
+                var n = 0
+                while (c.moveToNext()) {
+                    if (idx < 0 || calendarIds.contains(c.getLong(idx))) n++
+                }
+                n
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "统计日程条数失败", e)
+            0
+        }
     }
 
     /**
@@ -140,7 +165,9 @@ object ScheduleRepository {
                 "${CalendarContract.Calendars.CALENDAR_DISPLAY_NAME} ASC",
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
-                    names += cursor.getLong(0) to (cursor.getString(1) ?: "(未命名日历)")
+                    // 显示名可能是 null 或空字符串,统一成占位名,避免界面上出现空白项
+                    val displayName = cursor.getString(1)?.takeIf { it.isNotBlank() } ?: "(未命名日历)"
+                    names += cursor.getLong(0) to displayName
                 }
             }
         } catch (e: SecurityException) {

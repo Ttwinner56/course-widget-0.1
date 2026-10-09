@@ -57,7 +57,10 @@ class CourseWidgetProvider : AppWidgetProvider() {
 
         private const val TAG = "CourseWidget"
         private const val PREFS = "course_widget"
-        private const val KEY_CALENDAR_IDS = "calendar_ids"
+        /** 用户显式勾选的日历 */
+        private const val KEY_SELECTED_IDS = "selected_calendar_ids"
+        /** 上次验证过确实有数据的日历(缓存) */
+        private const val KEY_RESOLVED_IDS = "resolved_calendar_ids"
 
         /** 与 widget_course.xml 里静态声明的控件一一对应 */
         private val ROW_IDS = intArrayOf(R.id.row1, R.id.row2, R.id.row3, R.id.row4)
@@ -78,26 +81,65 @@ class CourseWidgetProvider : AppWidgetProvider() {
 
         // ------------------------------------------------------------ 配置读写
 
-        fun saveCalendarIds(context: Context, ids: List<Long>) {
+        /** 用户在配置页显式勾选的日历(最强依据)。 */
+        private fun userSelectedIds(context: Context): List<Long>? =
+            parseIds(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SELECTED_IDS, null))
+
+        /** 上一次成功解析出、且确实有数据的日历(缓存,避免每次刷新都重新猜)。 */
+        private fun cachedResolvedIds(context: Context): List<Long>? =
+            parseIds(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_RESOLVED_IDS, null))
+
+        private fun parseIds(raw: String?): List<Long>? = raw
+            ?.split(",")
+            ?.mapNotNull { it.trim().toLongOrNull() }
+            ?.takeIf { it.isNotEmpty() && it.all { id -> id > 0 } }
+
+        private fun writeIds(context: Context, key: String, ids: List<Long>) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
-                .putString(KEY_CALENDAR_IDS, ids.joinToString(","))
+                .putString(key, ids.joinToString(","))
                 .apply()
         }
 
-        /** 返回用户选定的日历;没选过就自动猜一个(名称含"课表"或名称最短的)。 */
-        fun calendarIds(context: Context): List<Long> {
-            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_CALENDAR_IDS, null)
-            val parsed = raw?.split(",")
-                ?.mapNotNull { it.trim().toLongOrNull() }
-                ?.takeIf { it.isNotEmpty() }
-            return parsed ?: ScheduleRepository.guessCalendarIds(context)
+        /** 配置页点"确定"时调用:同时写入用户选择与缓存。 */
+        fun saveCalendarIds(context: Context, ids: List<Long>) {
+            writeIds(context, KEY_SELECTED_IDS, ids)
+            writeIds(context, KEY_RESOLVED_IDS, ids)
         }
 
-        fun hasExplicitSelection(context: Context): Boolean =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_CALENDAR_IDS, null) != null
+        /**
+         * 解析出"这次到底该读哪些日历"。
+         *
+         * 候选按可信度排序:用户选择 > 上次成功解析的缓存 > 自动猜。
+         * 逐个用"本周是否真有日程"来验证,**第一个真有数据的才采用**并写入缓存。
+         *
+         * 这样避免两个坑:
+         *  - 每次刷新都重新猜,结果在"正确日历"和"空日历"之间跳变(现象就是
+         *    刚添加时正常、几秒后变成没有课程数据);
+         *  - 猜到一个没有日程的日历却当成成功,界面只显示"没有数据"而无从排查。
+         */
+        fun resolveCalendarIds(context: Context, now: Long = System.currentTimeMillis()): List<Long> {
+            val (begin, end) = ScheduleRepository.currentWeekRange(now)
+            val user = userSelectedIds(context)
+            val cached = cachedResolvedIds(context)
+            val guessed = ScheduleRepository.guessCalendarIds(context, now)
+
+            val candidates = listOfNotNull(user, cached, guessed.takeIf { it.isNotEmpty() })
+                .distinct()
+
+            for (candidate in candidates) {
+                if (ScheduleRepository.countEvents(context, candidate, begin, end) > 0) {
+                    if (candidate != user) writeIds(context, KEY_RESOLVED_IDS, candidate)
+                    return candidate
+                }
+            }
+
+            // 都没有数据:优先返回用户选择(便于界面显示"读取的日历"),否则返回缓存/猜测
+            return user ?: cached ?: guessed
+        }
+
+        /** 兼容旧调用。 */
+        fun calendarIds(context: Context): List<Long> = resolveCalendarIds(context)
 
         // ------------------------------------------------------------ 刷新入口
 
