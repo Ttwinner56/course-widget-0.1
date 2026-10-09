@@ -1,0 +1,6 @@
+{
+  "versionName": "0.1.0",
+  "versionCode": 1000,
+  "stage": "beta",
+  "notes": "首个测试版:今日课程列表 + 本周概览小组件;修复 instances URI 查询报错;新增应用图标与固定签名"
+}

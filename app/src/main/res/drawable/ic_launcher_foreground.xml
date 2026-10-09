@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自适应图标前景:白色日历卡片 + 顶部装订环 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 左侧装订环 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M26,31 a3.5,3.5 0 1 0 7,0 a3.5,3.5 0 1 0 -7,0 z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M75,31 a3.5,3.5 0 1 0 7,0 a3.5,3.5 0 1 0 -7,0 z" />
+
+    <!-- 日历卡片 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24,38 L84,38 A6,6 0 0 1 90,44 L90,78 A6,6 0 0 1 84,84 L24,84 A6,6 0 0 1 18,78 L18,44 A6,6 0 0 1 24,38 Z" />
+
+    <!-- 卡片内的深色标题条 -->
+    <path
+        android:fillColor="#FF2B4C9B"
+        android:pathData="M18,44 A6,6 0 0 1 24,38 L84,38 A6,6 0 0 1 90,44 L90,54 L18,54 Z" />
+</vector>

@@ -1,16 +1,40 @@
-name: Build APK
+name: Build & Release APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      create_release:
+        description: '是否打 tag 并发布 Release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # ---------------------------------------------------------- 准备
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 需要完整历史来生成变更日志
+
+      - name: 读取版本号 (version.json)
+        id: ver
+        run: |
+          VERSION_NAME=$(python3 -c "import json;print(json.load(open('version.json'))['versionName'])")
+          VERSION_CODE=$(python3 -c "import json;print(json.load(open('version.json'))['versionCode'])")
+          STAGE=$(python3 -c "import json;print(json.load(open('version.json')).get('stage','') or '')")
+          if [ -n "$STAGE" ]; then TAG="v${VERSION_NAME}-${STAGE}"; else TAG="v${VERSION_NAME}"; fi
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "stage=$STAGE" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "版本: $VERSION_NAME ($VERSION_CODE) 标签: $TAG"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -28,12 +52,131 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      # ---------------------------------------------------------- 固定签名
+      - name: 还原签名密钥
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::未配置 KEYSTORE_BASE64,本次构建不签名(产物无法直接安装)"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/coursewidget.jks"
+          echo "密钥已还原,大小: $(stat -c%s $RUNNER_TEMP/coursewidget.jks) 字节"
 
-      - name: Upload APK
+      # ---------------------------------------------------------- 构建
+      - name: 构建 release APK
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          gradle assembleRelease --no-daemon --stacktrace \
+            -PversionName=${{ steps.ver.outputs.name }} \
+            -PversionCode=${{ steps.ver.outputs.code }} \
+            -Psigning.storeFile=$RUNNER_TEMP/coursewidget.jks \
+            -Psigning.storePassword="$KS_PASS" \
+            -Psigning.keyAlias=${{ secrets.KEY_ALIAS }} \
+            -Psigning.keyPassword="$KEY_PASS"
+
+      - name: 整理产物
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk "dist/CourseWidget-${{ steps.ver.outputs.tag }}.apk"
+          ls -lh dist/
+
+      - name: 校验签名
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then echo "未配置密钥,跳过签名校验"; exit 0; fi
+          BT=$(ls $ANDROID_HOME/build-tools/*/apksigner | head -1)
+          "$BT" verify --print-certs "dist/CourseWidget-${{ steps.ver.outputs.tag }}.apk" | head -20
+
+      - name: 上传 APK 产物
         uses: actions/upload-artifact@v4
         with:
-          name: course-widget-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: CourseWidget-${{ steps.ver.outputs.tag }}
+          path: dist/*.apk
           if-no-files-found: error
+
+      # ---------------------------------------------------------- 生成变更日志
+      - name: 生成变更日志
+        if: github.event_name == 'push' || inputs.create_release
+        run: |
+          PREV=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$PREV" ]; then RANGE="HEAD"; else RANGE="$PREV..HEAD"; fi
+          {
+            echo "## CourseWidget ${{ steps.ver.outputs.tag }}"
+            echo ""
+            python3 -c "import json;d=json.load(open('version.json'));print(d.get('notes') or '_未填写说明_')"
+            echo ""
+            echo "### 本次变更"
+            git log $RANGE --no-merges --pretty=format:'- %s (%h)' | head -40
+            echo ""
+            echo ""
+            echo "### 安装说明"
+            echo "1. 下载下面的 APK 文件"
+            echo "2. 手机安装(首次需允许安装未知来源应用)"
+            echo "3. 打开 App 授予日历权限 → 桌面添加小组件 → 勾选课表日历"
+            echo ""
+            echo "> 自 0.1.0 起使用固定签名,后续版本可直接覆盖安装,无需卸载。"
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      # ---------------------------------------------------------- 打 tag + 发布
+      - name: 打 tag 并发布 Release
+        if: github.event_name == 'push' || inputs.create_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::notice::tag $TAG 已存在,跳过发布。要重发请先在 GitHub 删除该 tag 和 Release,或修改 version.json"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "CourseWidget $TAG"
+          git push origin "$TAG"
+          ARGS=""
+          if [ "${{ steps.ver.outputs.stage }}" = "beta" ]; then ARGS="--prerelease"; fi
+          gh release create "$TAG" dist/*.apk \
+            --title "CourseWidget $TAG" \
+            --notes-file RELEASE_NOTES.md \
+            $ARGS
+
+      # ---------------------------------------------------------- 回写 README
+      - name: 更新 README 版本信息
+        if: github.event_name == 'push' || inputs.create_release
+        run: |
+          python3 - "${{ steps.ver.outputs.tag }}" "${{ steps.ver.outputs.stage || 'stable' }}" <<'PY'
+          import re, sys, pathlib
+          tag, stage = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("README.md")
+          text = p.read_text(encoding="utf-8")
+          block = (
+              "<!-- LATEST:START -->\n"
+              f"**最新版本：`{tag}`**（{stage}）\n\n"
+              "➡️ [点此下载 APK](https://github.com/Ttwinner56/course-widget-0.1/releases/latest)\n"
+              "<!-- LATEST:END -->"
+          )
+          pattern = re.compile(r"<!-- LATEST:START -->.*?<!-- LATEST:END -->", re.S)
+          if pattern.search(text):
+              text = pattern.sub(block, text)
+          else:
+              text = text.replace(
+                  "# 课表小组件（Android）",
+                  "# 课表小组件（Android）\n\n" + block,
+                  1,
+              )
+          p.write_text(text, encoding="utf-8")
+          print("README 已更新为", tag)
+          PY
+
+      - name: 提交 README 更新
+        if: github.event_name == 'push' || inputs.create_release
+        run: |
+          if git diff --quiet README.md; then echo "README 无变化"; exit 0; fi
+          git add README.md
+          git commit -m "docs: 更新最新版本到 ${{ steps.ver.outputs.tag }} [skip ci]"
+          git push
