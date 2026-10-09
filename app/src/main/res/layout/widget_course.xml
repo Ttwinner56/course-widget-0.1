@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小组件根布局:上半是今日课程列表,下半是本周概览 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="@dimen/widget_pad">
+
+    <!-- 顶栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/header_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="@string/widget_title"
+            android:textColor="@color/text_primary"
+            android:textSize="@dimen/widget_title_size"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/header_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/badge_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:maxLines="1"
+            android:textColor="@color/accent"
+            android:textSize="@dimen/widget_day_label_size" />
+    </LinearLayout>
+
+    <!-- 今日课程列表(动态填充) -->
+    <LinearLayout
+        android:id="@+id/today_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="@dimen/widget_gap"
+        android:orientation="vertical" />
+
+    <!-- 今日占位提示(无课/无权限时显示) -->
+    <TextView
+        android:id="@+id/today_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="@dimen/widget_gap"
+        android:gravity="center"
+        android:text="@string/widget_no_class"
+        android:textColor="@color/text_secondary"
+        android:textSize="@dimen/widget_row_name_size"
+        android:visibility="gone" />
+
+    <!-- 本周概览 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/widget_gap"
+        android:orientation="vertical">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/widget_stroke" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:letterSpacing="0.05"
+            android:text="@string/widget_week_overview"
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/widget_day_label_size" />
+
+        <LinearLayout
+            android:id="@+id/week_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal" />
+    </LinearLayout>
+</LinearLayout>

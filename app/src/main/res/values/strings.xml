@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">课表小组件</string>
+    <string name="widget_label">课表小组件</string>
+    <string name="widget_description">桌面显示今日课程与本周概览,数据来自系统日历</string>
+
+    <string name="widget_title">今日课程</string>
+    <string name="widget_no_class">今天没课</string>
+    <string name="widget_need_permission">需要日历权限</string>
+    <string name="widget_need_permission_hint">点此授权读取日历</string>
+    <string name="widget_need_config">点此选择课表日历</string>
+    <string name="widget_week_overview">本周概览</string>
+    <string name="widget_week_fmt">第%1$d周</string>
+    <string name="widget_left_fmt">今天还有 %1$d 节</string>
+    <string name="widget_all_done">今天的课上完了</string>
+    <string name="widget_cell_fmt">%1$d节</string>
+    <string name="widget_empty_calendar">这个日历里没有日程</string>
+    <string name="widget_finished">已结束</string>
+
+    <string name="config_title">选择课表日历</string>
+    <string name="config_hint">勾选你导入课表的那个日历(可多选)。小组件只显示这些日历里的日程。</string>
+    <string name="config_confirm">确定</string>
+    <string name="config_cancel">取消</string>
+    <string name="config_need_permission">需要日历读取权限才能列出日历</string>
+    <string name="config_grant">去授权</string>
+
+    <string name="main_title">课表小组件</string>
+    <string name="main_hint">1. 授予日历权限\n2. 在桌面长按空白处 → 添加小组件 → 找到“课表小组件”\n3. 按提示选择课表日历</string>
+    <string name="main_pick_calendar">选择课表日历</string>
+</resources>

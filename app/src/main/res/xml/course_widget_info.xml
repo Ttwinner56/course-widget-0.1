@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  小组件尺寸说明:
+  minWidth/minHeight 的单位是 dp,公式大致为 70*n - 30(老版本桌面),
+  现代桌面(含 MIUI/澎湃 OS)按 targetCellWidth/Height 计算格子数。
+  4x4 是"今日列表 + 本周概览"比较舒服的尺寸。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_course"
+    android:minWidth="250dp"
+    android:minHeight="250dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="4"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_description"
+    android:configure="com.veid.coursewidget.ConfigActivity"
+    android:previewLayout="@layout/widget_course" />

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式:同名覆盖,布局不用改 -->
+    <color name="widget_bg">#E61C1C1E</color>
+    <color name="widget_stroke">#33FFFFFF</color>
+    <color name="text_primary">#FFF2F2F2</color>
+    <color name="text_secondary">#FFB0B0B0</color>
+    <color name="accent">#FF6E93FF</color>
+    <color name="accent_soft">#336E93FF</color>
+    <color name="row_bg">#1AFFFFFF</color>
+</resources>

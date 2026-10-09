@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="widget_pad">14dp</dimen>
+    <dimen name="widget_radius">20dp</dimen>
+    <dimen name="widget_title_size">13sp</dimen>
+    <dimen name="widget_row_time_size">13sp</dimen>
+    <dimen name="widget_row_name_size">14sp</dimen>
+    <dimen name="widget_row_room_size">11sp</dimen>
+    <dimen name="widget_day_label_size">11sp</dimen>
+    <dimen name="widget_day_count_size">15sp</dimen>
+    <dimen name="widget_gap">8dp</dimen>
+</resources>
