@@ -88,40 +88,118 @@ object ScheduleRepository {
 
     // ---------------------------------------------------------------- 日历来源
 
-    /**
-     * 猜测哪个系统日历是课表:
-     * 1) 名称里有“课表”;
-     * 2) 否则用名称最短的那个(用户导入 .ics 时通常就是简单命名)。
-     */
-    fun guessCalendarIds(context: Context): List<Long> {
-        val calendars = listCalendars(context)
-        if (calendars.isEmpty()) return emptyList()
-        val named = calendars.filter { it.second.contains(CALENDAR_DISPLAY_NAME) }
-        if (named.isNotEmpty()) return named.map { it.first }
-        return listOf(calendars.minByOrNull { it.second.length }!!.first)
+    /** 一个系统日历:ID、显示名、本周日程条数(用于识别哪个是课表)。 */
+    data class CalendarInfo(val id: Long, val name: String, val weekCount: Int)
+
+    /** 当前自然周的 [周一 00:00, 下周一 00:00) 毫秒区间。 */
+    fun currentWeekRange(now: Long = System.currentTimeMillis()): Pair<Long, Long> {
+        val start = startOfWeek(now)
+        return start to (start + 7 * DAY_MILLIS)
     }
 
-    /** 返回 (id, 显示名) 列表,按名称排序。 */
-    fun listCalendars(context: Context): List<Pair<Long, String>> {
-        val result = mutableListOf<Pair<Long, String>>()
+    /**
+     * 猜测哪个系统日历是课表,按优先级:
+     * 1) 名称里含“课表”;
+     * 2) 本周日程条数最多的那个(最可靠 —— 课表是一堆密集的定时日程);
+     * 3) 名称最短的(导入的日历通常命名简单)。
+     *
+     * 早期版本只用 1) 和 3),在用户把课表导入到别的名字的日历时会猜错,
+     * 导致小组件一直显示“今天没课”。加入条数启发式后基本不会错。
+     */
+    fun guessCalendarIds(context: Context, now: Long = System.currentTimeMillis()): List<Long> {
+        val weekStart = startOfWeek(now)
+        val infos = listCalendarsWithCounts(context, weekStart, weekStart + 7 * DAY_MILLIS)
+        if (infos.isEmpty()) return emptyList()
+
+        infos.filter { it.name.contains(CALENDAR_DISPLAY_NAME) }
+            .takeIf { it.isNotEmpty() }
+            ?.let { return it.map { c -> c.id } }
+
+        infos.maxByOrNull { it.weekCount }
+            ?.takeIf { it.weekCount > 0 }
+            ?.let { return listOf(it.id) }
+
+        return listOf(infos.minByOrNull { it.name.length }!!.id)
+    }
+
+    /**
+     * 列出所有日历,并统计 [begin, end) 内各自的日程条数。
+     *
+     * 注意:不加 VISIBLE 过滤 —— 用户导入课表的日历有可能在系统日历里是隐藏的,
+     * 过滤掉就会“看不到任何日历可选”,反而更难排查。
+     */
+    fun listCalendarsWithCounts(context: Context, begin: Long, end: Long): List<CalendarInfo> {
+        val names = mutableListOf<Pair<Long, String>>()
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
             CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
         )
-        val selection = "${CalendarContract.Calendars.VISIBLE} = 1"
         try {
             context.contentResolver.query(
-                CalendarContract.Calendars.CONTENT_URI, projection, selection, null,
+                CalendarContract.Calendars.CONTENT_URI, projection, null, null,
                 "${CalendarContract.Calendars.CALENDAR_DISPLAY_NAME} ASC",
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
-                    result += cursor.getLong(0) to (cursor.getString(1) ?: "(未命名日历)")
+                    names += cursor.getLong(0) to (cursor.getString(1) ?: "(未命名日历)")
                 }
             }
         } catch (e: SecurityException) {
             Log.w(TAG, "读取日历列表被拒绝", e)
+            return emptyList()
         }
-        return result
+
+        // 一次查询统计本周各日历的条数,避免逐个日历查询
+        val counts = mutableMapOf<Long, Int>()
+        try {
+            val cursor = CalendarContract.Instances.query(
+                context.contentResolver,
+                arrayOf(CalendarContract.Instances.CALENDAR_ID),
+                begin,
+                end,
+            )
+            cursor.use { c ->
+                val idx = c.getColumnIndex(CalendarContract.Instances.CALENDAR_ID)
+                if (idx >= 0) {
+                    while (c.moveToNext()) {
+                        val id = c.getLong(idx)
+                        counts[id] = (counts[id] ?: 0) + 1
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "统计日历条数失败", e)
+        }
+
+        return names.map { (id, name) -> CalendarInfo(id, name, counts[id] ?: 0) }
+    }
+
+    /** 兼容旧调用:只返回 (id, 显示名)。 */
+    fun listCalendars(context: Context): List<Pair<Long, String>> {
+        val now = System.currentTimeMillis()
+        val weekStart = startOfWeek(now)
+        return listCalendarsWithCounts(context, weekStart, weekStart + 7 * DAY_MILLIS)
+            .map { it.id to it.name }
+    }
+
+    /** 取这些日历的显示名,用于在小组件上显示“正在读取哪个日历”。 */
+    fun calendarNames(context: Context, ids: List<Long>): List<String> {
+        if (ids.isEmpty()) return emptyList()
+        val names = mutableListOf<String>()
+        val selection = "${CalendarContract.Calendars._ID} IN (${ids.joinToString(",")})"
+        try {
+            context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                arrayOf(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
+                selection, null, null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    names += cursor.getString(0) ?: "(未命名)"
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "读取日历名被拒绝", e)
+        }
+        return names
     }
 
     // ---------------------------------------------------------------- 查询事件

@@ -76,7 +76,12 @@ class ConfigActivity : AppCompatActivity() {
         boxes.clear()
 
         io.execute {
-            val calendars = ScheduleRepository.listCalendars(this)
+            val (weekBegin, weekEnd) = ScheduleRepository.currentWeekRange()
+            // 按本周日程条数从多到少排序:课表那个日历通常会排在最上面,好认
+            val calendars = ScheduleRepository
+                .listCalendarsWithCounts(this, weekBegin, weekEnd)
+                .sortedWith(compareByDescending<ScheduleRepository.CalendarInfo> { it.weekCount }
+                    .thenBy { it.name })
             val selected = CourseWidgetProvider.calendarIds(this).toSet()
             runOnUiThread {
                 if (calendars.isEmpty()) {
@@ -84,13 +89,14 @@ class ConfigActivity : AppCompatActivity() {
                     findViewById<TextView>(R.id.config_status).setText(R.string.widget_empty_calendar)
                     return@runOnUiThread
                 }
-                for ((id, name) in calendars) {
+                for (info in calendars) {
                     val box = CheckBox(this)
-                    box.text = name
+                    // 显示本周条数,方便一眼认出哪个是课表
+                    box.text = getString(R.string.config_calendar_item, info.name, info.weekCount)
                     box.id = View.generateViewId()
-                    box.isChecked = id in selected
+                    box.isChecked = info.id in selected
                     container.addView(box)
-                    boxes += id to box
+                    boxes += info.id to box
                 }
             }
         }

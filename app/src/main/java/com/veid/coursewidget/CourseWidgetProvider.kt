@@ -112,10 +112,15 @@ class CourseWidgetProvider : AppWidgetProvider() {
                     val today = ScheduleRepository.today(context, calendarIds, now)
                     val week = ScheduleRepository.week(context, calendarIds, now)
                     val next = ScheduleRepository.nextRefreshAt(context, calendarIds, now)
+                    // 记住当前读的是哪些日历,数据为空时显示出来便于排查
+                    val names = ScheduleRepository.calendarNames(context, calendarIds)
                     Handler(Looper.getMainLooper()).post {
                         for (id in ids) {
                             try {
-                                manager.updateAppWidget(id, buildViews(context, today, week, calendarIds))
+                                manager.updateAppWidget(
+                                    id,
+                                    buildViews(context, today, week, calendarIds, names),
+                                )
                             } catch (e: Exception) {
                                 Log.e(TAG, "更新小组件失败", e)
                             }
@@ -166,6 +171,7 @@ class CourseWidgetProvider : AppWidgetProvider() {
             today: ScheduleRepository.TodayInfo,
             week: List<ScheduleRepository.DayInfo>,
             calendarIds: List<Long>,
+            calendarNames: List<String>,
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_course)
 
@@ -223,7 +229,10 @@ class CourseWidgetProvider : AppWidgetProvider() {
                     context.getString(R.string.widget_query_failed_fmt, today.error)
                 today.all.isNotEmpty() -> null
                 // 今天没课:区分"整周都没数据"(多半是没导入/没选对日历)和"今天正好没课"
-                !weekHasData -> context.getString(R.string.widget_no_data)
+                !weekHasData -> context.getString(
+                    R.string.widget_no_data_fmt,
+                    calendarNames.joinToString("、").ifBlank { context.getString(R.string.widget_unknown_calendar) },
+                )
                 else -> context.getString(R.string.widget_no_class)
             }
             if (message != null) {
