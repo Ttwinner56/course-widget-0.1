@@ -40,6 +40,11 @@ android {
     namespace = "com.veid.coursewidget"
     compileSdk = 35
 
+    // 产物基础名:最终会得到 CourseWidget-v0.1.0-release.apk
+    // 只用稳定的公开 API,不碰 AGP 内部类(内部 API 跨版本会崩)。
+    @Suppress("DEPRECATION")
+    archivesBaseName = "CourseWidget-v$appVersionName"
+
     defaultConfig {
         applicationId = "com.veid.coursewidget"
         minSdk = 26
@@ -87,14 +92,6 @@ android {
 
     buildFeatures {
         viewBinding = false
-    }
-
-    // 产物文件名带上版本号:CourseWidget-v0.1.0-release.apk
-    applicationVariants.all {
-        outputs.all {
-            val variantOutput = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            variantOutput.outputFileName = "CourseWidget-v$appVersionName-${buildType.name}.apk"
-        }
     }
 }
 
