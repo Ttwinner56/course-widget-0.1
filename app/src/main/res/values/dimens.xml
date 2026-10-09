@@ -2,11 +2,14 @@
 <resources>
     <dimen name="widget_pad">14dp</dimen>
     <dimen name="widget_radius">20dp</dimen>
-    <dimen name="widget_title_size">13sp</dimen>
-    <dimen name="widget_row_time_size">13sp</dimen>
-    <dimen name="widget_row_name_size">14sp</dimen>
-    <dimen name="widget_row_room_size">11sp</dimen>
-    <dimen name="widget_day_label_size">11sp</dimen>
-    <dimen name="widget_day_count_size">15sp</dimen>
+
+    <!-- 字号整体调大(用户反馈偏小) -->
+    <dimen name="widget_title_size">17sp</dimen>
+    <dimen name="widget_row_time_size">15sp</dimen>
+    <dimen name="widget_row_name_size">17sp</dimen>
+    <dimen name="widget_row_room_size">13sp</dimen>
+    <dimen name="widget_day_label_size">13sp</dimen>
+    <dimen name="widget_day_count_size">18sp</dimen>
+
     <dimen name="widget_gap">8dp</dimen>
 </resources>

@@ -18,6 +18,10 @@
     <string name="widget_cell_fmt">%1$d节</string>
     <string name="widget_empty_calendar">这个日历里没有日程</string>
     <string name="widget_finished">已结束</string>
+    <!-- 已结束课程的勾选标记 -->
+    <string name="widget_done_mark">✓ </string>
+    <!-- 本周完全没有数据时的提示(通常意味着没导入课表或没选对日历) -->
+    <string name="widget_no_data">本周没有课程数据\n请确认已把课表导入手机日历,\n并在此小组件的配置里选中该日历</string>
 
     <string name="config_title">选择课表日历</string>
     <string name="config_hint">勾选你导入课表的那个日历(可多选)。小组件只显示这些日历里的日程。</string>

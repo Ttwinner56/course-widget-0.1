@@ -1,6 +1,6 @@
 {
-  "versionName": "0.1.1",
-  "versionCode": 1010,
+  "versionName": "0.1.2",
+  "versionCode": 1020,
   "stage": "beta",
-  "notes": "修复桌面显示 Can't load widget:小组件改为静态布局,不再使用 RemoteViews.addView(部分桌面宿主不支持);同时支持今日最多 4 节课并显示起止时间"
+  "notes": "字号整体调大;今日课程改为显示全部课程(已结束的用勾号和浅色区分);本周概览没课时改用圆点,不再和星期'一'混淆;周概览固定底部;整周无数据时给出导入/选日历的提示"
 }

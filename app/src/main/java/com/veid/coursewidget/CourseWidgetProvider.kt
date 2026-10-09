@@ -130,6 +130,35 @@ class CourseWidgetProvider : AppWidgetProvider() {
 
         fun refreshNow(context: Context) = refreshAll(context)
 
+        // ------------------------------------------------------------ 小工具
+
+        /**
+         * 决定"今日课程"里显示哪几条:
+         * 按时间显示今天全部课程(含已结束的,用勾号+浅色区分);
+         * 若超过行数上限,优先保留还没结束的课,再用最近的已结束课补齐。
+         */
+        private fun pickTodayRows(
+            all: List<ScheduleRepository.ClassEvent>,
+            now: Long,
+        ): List<ScheduleRepository.ClassEvent> {
+            val limit = ROW_IDS.size
+            if (all.size <= limit) return all
+            val upcoming = all.filter { it.end > now }
+            val finished = all.filter { it.end <= now }
+            val keepFinished = maxOf(0, limit - upcoming.size)
+            return (finished.takeLast(keepFinished) + upcoming)
+                .sortedBy { it.begin }
+                .take(limit)
+        }
+
+        @Suppress("DEPRECATION")
+        private fun color(context: Context, resId: Int): Int =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                context.resources.getColor(resId, context.theme)
+            } else {
+                context.resources.getColor(resId)
+            }
+
         // ------------------------------------------------------------ 渲染
 
         private fun buildViews(
@@ -148,27 +177,43 @@ class CourseWidgetProvider : AppWidgetProvider() {
             )
 
             val noCalendar = calendarIds.isEmpty()
-            val upcoming = today.upcoming.take(ROW_IDS.size)
+            val weekHasData = week.any { it.count > 0 }
+
+            // 今天要显示哪些课:已结束的也显示(用勾号和浅色区分),但要保证未结束的优先可见。
+            val display = pickTodayRows(today.all, now)
 
             // ---- 今日课程行:逐行设文本与可见性,不用 addView ----
             for (i in ROW_IDS.indices) {
-                val event = upcoming.getOrNull(i)
+                val event = display.getOrNull(i)
                 if (event == null) {
                     views.setViewVisibility(ROW_IDS[i], View.GONE)
                     continue
                 }
+                val finished = event.end <= now
                 views.setViewVisibility(ROW_IDS[i], View.VISIBLE)
                 views.setTextViewText(
                     ROW_TIME_IDS[i],
                     ScheduleRepository.timeLabel(event.begin) + "\n" + ScheduleRepository.timeLabel(event.end),
                 )
-                views.setTextViewText(ROW_NAME_IDS[i], event.title)
+                views.setTextViewText(
+                    ROW_NAME_IDS[i],
+                    if (finished) context.getString(R.string.widget_done_mark) + event.title else event.title,
+                )
                 if (event.location.isBlank()) {
                     views.setViewVisibility(ROW_ROOM_IDS[i], View.GONE)
                 } else {
                     views.setViewVisibility(ROW_ROOM_IDS[i], View.VISIBLE)
                     views.setTextViewText(ROW_ROOM_IDS[i], event.location)
                 }
+                // 已结束的课用浅色,和待上的课区分开
+                views.setTextColor(
+                    ROW_TIME_IDS[i],
+                    color(context, if (finished) R.color.text_secondary else R.color.accent),
+                )
+                views.setTextColor(
+                    ROW_NAME_IDS[i],
+                    color(context, if (finished) R.color.text_secondary else R.color.text_primary),
+                )
             }
 
             // ---- 空状态 / 错误提示 ----
@@ -176,9 +221,10 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 noCalendar -> context.getString(R.string.widget_need_config)
                 today.error != null && today.all.isEmpty() ->
                     context.getString(R.string.widget_query_failed_fmt, today.error)
-                today.all.isEmpty() -> context.getString(R.string.widget_no_class)
-                upcoming.isEmpty() -> context.getString(R.string.widget_all_done)
-                else -> null
+                today.all.isNotEmpty() -> null
+                // 今天没课:区分"整周都没数据"(多半是没导入/没选对日历)和"今天正好没课"
+                !weekHasData -> context.getString(R.string.widget_no_data)
+                else -> context.getString(R.string.widget_no_class)
             }
             if (message != null) {
                 views.setViewVisibility(R.id.today_empty, View.VISIBLE)
@@ -188,10 +234,29 @@ class CourseWidgetProvider : AppWidgetProvider() {
             }
 
             // ---- 本周概览 ----
+            // 每格:上面是星期,下面是当天课程数。
+            // 没课显示 "·" 而不是 "—":因为"一"这个字本身就是一横,用破折号会看混。
+            val todayIndex = ScheduleRepository.todayIndex()
             for (i in 0..6) {
                 val info = week.getOrNull(i) ?: ScheduleRepository.DayInfo(0, null)
+                val isToday = i == todayIndex
                 views.setTextViewText(CELL_DAY_IDS[i], DAY_LABELS[i])
-                views.setTextViewText(CELL_COUNT_IDS[i], if (info.count == 0) "—" else info.count.toString())
+                views.setTextViewText(CELL_COUNT_IDS[i], if (info.count == 0) "·" else info.count.toString())
+                views.setTextColor(
+                    CELL_DAY_IDS[i],
+                    color(context, if (isToday) R.color.accent else R.color.text_secondary),
+                )
+                views.setTextColor(
+                    CELL_COUNT_IDS[i],
+                    color(
+                        context,
+                        when {
+                            isToday -> R.color.accent
+                            info.count == 0 -> R.color.text_secondary
+                            else -> R.color.text_primary
+                        },
+                    ),
+                )
             }
 
             // 点标题 -> 打开今天的日历日视图
