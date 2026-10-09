@@ -96,18 +96,12 @@
         android:textSize="@dimen/widget_row_room_size"
         android:visibility="gone" />
 
-    <!-- 弹性空白:把本周概览推到卡片底部(课少时不会留一大块空白在下面) -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
-
     <!-- ======================= 本周概览 7 格 ======================= -->
     <LinearLayout
         android:id="@+id/week_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="8dp"
         android:baselineAligned="false"
         android:orientation="horizontal">
 

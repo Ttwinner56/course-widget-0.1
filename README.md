@@ -53,6 +53,7 @@
 
 | 版本 | 类型 | 主要变化 |
 |---|---|---|
+| [v0.1.4-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.4-beta) | beta | 修复 0.1.2/0.1.3 的 `Can't load widget`：移除裸 `<View>` 占位符与 `setTextColor`，改纯文字方案；新增兜底界面（失败时显示原因） |
 | [v0.1.3-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.3-beta) | beta | 修复读不到课程数据：自动识别课表日历改用"本周日程条数最多"；配置页显示各日历条数；无数据时显示正在读取的日历名 |
 | [v0.1.2-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.2-beta) | beta | 字号调大；今日显示全部课程（已结束带 `✓` 且浅色）；周概览空课改圆点；周概览固定底部 |
 | [v0.1.1-beta](https://github.com/Ttwinner56/course-widget-0.1/releases/tag/v0.1.1-beta) | beta | 修复桌面 `Can't load widget`：改为静态布局，不再用 `RemoteViews.addView` |

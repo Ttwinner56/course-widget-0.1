@@ -106,29 +106,36 @@ class CourseWidgetProvider : AppWidgetProvider() {
             val ids = manager.getAppWidgetIds(ComponentName(context, CourseWidgetProvider::class.java))
             if (ids.isEmpty()) return
             io.execute {
+                var fallbackError: Throwable? = null
+                var mainViews: RemoteViews? = null
+                var next = System.currentTimeMillis() + 30 * 60 * 1000
                 try {
                     val calendarIds = calendarIds(context)
                     val now = System.currentTimeMillis()
                     val today = ScheduleRepository.today(context, calendarIds, now)
                     val week = ScheduleRepository.week(context, calendarIds, now)
-                    val next = ScheduleRepository.nextRefreshAt(context, calendarIds, now)
+                    next = ScheduleRepository.nextRefreshAt(context, calendarIds, now)
                     // 记住当前读的是哪些日历,数据为空时显示出来便于排查
                     val names = ScheduleRepository.calendarNames(context, calendarIds)
-                    Handler(Looper.getMainLooper()).post {
-                        for (id in ids) {
-                            try {
-                                manager.updateAppWidget(
-                                    id,
-                                    buildViews(context, today, week, calendarIds, names),
-                                )
-                            } catch (e: Exception) {
-                                Log.e(TAG, "更新小组件失败", e)
-                            }
-                        }
-                        scheduleRefresh(context, next)
-                    }
+                    mainViews = buildViews(context, today, week, calendarIds, names)
                 } catch (e: Exception) {
-                    Log.e(TAG, "刷新失败", e)
+                    Log.e(TAG, "构建小组件内容失败", e)
+                    fallbackError = e
+                }
+
+                val views = mainViews ?: runCatching { buildFallback(context, fallbackError!!) }
+                    .getOrElse { RemoteViews(context.packageName, R.layout.widget_fallback) }
+
+                val refreshAt = next
+                Handler(Looper.getMainLooper()).post {
+                    for (id in ids) {
+                        try {
+                            manager.updateAppWidget(id, views)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "更新小组件失败", e)
+                        }
+                    }
+                    scheduleRefresh(context, refreshAt)
                 }
             }
         }
@@ -139,7 +146,7 @@ class CourseWidgetProvider : AppWidgetProvider() {
 
         /**
          * 决定"今日课程"里显示哪几条:
-         * 按时间显示今天全部课程(含已结束的,用勾号+浅色区分);
+         * 按时间显示今天全部课程(含已结束的,带勾号和"已结束"字样);
          * 若超过行数上限,优先保留还没结束的课,再用最近的已结束课补齐。
          */
         private fun pickTodayRows(
@@ -156,13 +163,18 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 .take(limit)
         }
 
-        @Suppress("DEPRECATION")
-        private fun color(context: Context, resId: Int): Int =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                context.resources.getColor(resId, context.theme)
-            } else {
-                context.resources.getColor(resId)
-            }
+        /**
+         * 兜底界面:只有一个 TextView。
+         *
+         * 存在的意义:如果正常布局因为任何原因构建失败,桌面会显示 "Can't load widget",
+         * 用户完全看不到原因。用这个最简布局把错误文字显示出来,才能定位问题。
+         */
+        private fun buildFallback(context: Context, error: Throwable): RemoteViews {
+            val views = RemoteViews(context.packageName, R.layout.widget_fallback)
+            val detail = error.javaClass.simpleName + ": " + (error.message ?: "未知错误")
+            views.setTextViewText(R.id.fallback_text, context.getString(R.string.widget_build_failed, detail))
+            return views
+        }
 
         // ------------------------------------------------------------ 渲染
 
@@ -201,25 +213,24 @@ class CourseWidgetProvider : AppWidgetProvider() {
                     ROW_TIME_IDS[i],
                     ScheduleRepository.timeLabel(event.begin) + "\n" + ScheduleRepository.timeLabel(event.end),
                 )
+                // 已结束的课用文字标记,不用 setTextColor ——
+                // 上色属于 RemoteViews 的"动作",宿主不支持时会让整次更新失败;
+                // 纯文字在所有宿主上都稳。
                 views.setTextViewText(
                     ROW_NAME_IDS[i],
                     if (finished) context.getString(R.string.widget_done_mark) + event.title else event.title,
                 )
-                if (event.location.isBlank()) {
+                val roomText = when {
+                    !finished -> event.location
+                    event.location.isBlank() -> context.getString(R.string.widget_finished)
+                    else -> context.getString(R.string.widget_finished) + " · " + event.location
+                }
+                if (roomText.isBlank()) {
                     views.setViewVisibility(ROW_ROOM_IDS[i], View.GONE)
                 } else {
                     views.setViewVisibility(ROW_ROOM_IDS[i], View.VISIBLE)
-                    views.setTextViewText(ROW_ROOM_IDS[i], event.location)
+                    views.setTextViewText(ROW_ROOM_IDS[i], roomText)
                 }
-                // 已结束的课用浅色,和待上的课区分开
-                views.setTextColor(
-                    ROW_TIME_IDS[i],
-                    color(context, if (finished) R.color.text_secondary else R.color.accent),
-                )
-                views.setTextColor(
-                    ROW_NAME_IDS[i],
-                    color(context, if (finished) R.color.text_secondary else R.color.text_primary),
-                )
             }
 
             // ---- 空状态 / 错误提示 ----
@@ -245,27 +256,13 @@ class CourseWidgetProvider : AppWidgetProvider() {
             // ---- 本周概览 ----
             // 每格:上面是星期,下面是当天课程数。
             // 没课显示 "·" 而不是 "—":因为"一"这个字本身就是一横,用破折号会看混。
+            // 今天那一列用 "◉" 标出来(同样只用文字,不用 setTextColor)
             val todayIndex = ScheduleRepository.todayIndex()
             for (i in 0..6) {
                 val info = week.getOrNull(i) ?: ScheduleRepository.DayInfo(0, null)
                 val isToday = i == todayIndex
-                views.setTextViewText(CELL_DAY_IDS[i], DAY_LABELS[i])
+                views.setTextViewText(CELL_DAY_IDS[i], if (isToday) "◉" else DAY_LABELS[i])
                 views.setTextViewText(CELL_COUNT_IDS[i], if (info.count == 0) "·" else info.count.toString())
-                views.setTextColor(
-                    CELL_DAY_IDS[i],
-                    color(context, if (isToday) R.color.accent else R.color.text_secondary),
-                )
-                views.setTextColor(
-                    CELL_COUNT_IDS[i],
-                    color(
-                        context,
-                        when {
-                            isToday -> R.color.accent
-                            info.count == 0 -> R.color.text_secondary
-                            else -> R.color.text_primary
-                        },
-                    ),
-                )
             }
 
             // 点标题 -> 打开今天的日历日视图

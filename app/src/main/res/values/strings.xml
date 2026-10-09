@@ -25,6 +25,8 @@
     <!-- 带"当前读取的日历名",方便排查读错了哪个日历 -->
     <string name="widget_no_data_fmt">本周没有课程数据\n当前读取的日历:%1$s\n请重新添加小组件并勾选课表日历</string>
     <string name="widget_unknown_calendar">(未选中任何日历)</string>
+    <!-- 兜底界面:把构建失败的原因显示出来(否则桌面只会显示 Can't load widget) -->
+    <string name="widget_build_failed">小组件构建失败\n%1$s\n请把这段文字截图反馈</string>
 
     <string name="config_title">选择课表日历</string>
     <string name="config_hint">勾选你导入课表的那个日历(可多选)。括号里是它本周的日程条数——课表那个通常数字最大。</string>

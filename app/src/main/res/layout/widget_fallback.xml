@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  兜底界面:故意做得极其简单(一层 LinearLayout + 一个 TextView)。
+
+  用途:正常布局构建失败时,把错误文字显示在桌面上,而不是让桌面显示
+  "Can't load widget"(那样用户完全看不到原因)。
+  这个布局只用最基础的控件,保证任何宿主都能加载。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="@dimen/widget_pad">
+
+    <TextView
+        android:id="@+id/fallback_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:lineSpacingExtra="4dp"
+        android:text="@string/widget_title"
+        android:textColor="@color/text_primary"
+        android:textSize="@dimen/widget_row_room_size" />
+</LinearLayout>
