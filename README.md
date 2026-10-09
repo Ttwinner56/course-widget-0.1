@@ -3,7 +3,7 @@
 桌面小组件：**今日课程列表 + 本周概览**。数据直接读系统日历里你导入的课表，所以课表一变，小组件自动跟着变，不用重新编译。
 
 <!-- LATEST:START -->
-**最新版本：`v0.1.3-beta`**（beta）
+**最新版本：`v0.1.4-beta`**（beta）
 
 ➡️ [点此下载 APK](https://github.com/Ttwinner56/course-widget-0.1/releases/latest)
 <!-- LATEST:END -->
