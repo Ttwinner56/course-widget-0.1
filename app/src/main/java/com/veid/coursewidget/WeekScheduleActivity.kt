@@ -88,12 +88,12 @@ class WeekScheduleActivity : AppCompatActivity() {
                         text = "$prefix${ScheduleRepository.dayIndexLabel(dayInfo.dayIndex)} (${ScheduleRepository.dateLabel(dayInfo.dateMillis)})"
                         textSize = 15f
                         typeface = Typeface.DEFAULT_BOLD
-                        setTextColor(if (isToday) ContextCompat.getColor(context, R.color.accent) else ContextCompat.getColor(context, R.color.text_primary))
+                        setTextColor(if (isToday) ContextCompat.getColor(this@WeekScheduleActivity, R.color.accent) else ContextCompat.getColor(this@WeekScheduleActivity, R.color.text_primary))
                     }
                     val countTv = TextView(this).apply {
                         text = if (dayInfo.count > 0) "共 ${dayInfo.count} 节" else "无课"
                         textSize = 13f
-                        setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                        setTextColor(ContextCompat.getColor(this@WeekScheduleActivity, R.color.text_secondary))
                         setPadding(dp12, 0, 0, 0)
                     }
                     dayHeader.addView(titleTv)
@@ -104,7 +104,7 @@ class WeekScheduleActivity : AppCompatActivity() {
                         val emptyTv = TextView(this).apply {
                             text = "无课程"
                             textSize = 13f
-                            setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                            setTextColor(ContextCompat.getColor(this@WeekScheduleActivity, R.color.text_secondary))
                             setPadding(dp16, dp8, dp16, dp8)
                             setBackgroundResource(R.drawable.row_bg)
                         }
@@ -132,7 +132,7 @@ class WeekScheduleActivity : AppCompatActivity() {
                                 text = "${ScheduleRepository.timeLabel(e.begin)}\n${ScheduleRepository.timeLabel(e.end)}"
                                 textSize = 13f
                                 typeface = Typeface.DEFAULT_BOLD
-                                setTextColor(ContextCompat.getColor(context, R.color.accent))
+                                setTextColor(ContextCompat.getColor(this@WeekScheduleActivity, R.color.accent))
                                 minWidth = (55 * resources.displayMetrics.density).toInt()
                             }
 
@@ -146,7 +146,7 @@ class WeekScheduleActivity : AppCompatActivity() {
                                 text = e.title
                                 textSize = 15f
                                 typeface = Typeface.DEFAULT_BOLD
-                                setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                                setTextColor(ContextCompat.getColor(this@WeekScheduleActivity, R.color.text_primary))
                             }
                             infoLayout.addView(nameTv)
 
@@ -154,7 +154,7 @@ class WeekScheduleActivity : AppCompatActivity() {
                                 val roomTv = TextView(this).apply {
                                     text = "📍 ${e.location}"
                                     textSize = 12f
-                                    setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                                    setTextColor(ContextCompat.getColor(this@WeekScheduleActivity, R.color.text_secondary))
                                 }
                                 infoLayout.addView(roomTv)
                             }

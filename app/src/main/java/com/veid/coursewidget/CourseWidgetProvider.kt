@@ -380,7 +380,7 @@ class CourseWidgetProvider : AppWidgetProvider() {
 
             // ---- 本周概览 (7 格点击切换) ----
             for (i in 0..6) {
-                val info = week.getOrNull(i) ?: ScheduleRepository.DayInfo(0, null)
+                val info = week.getOrNull(i) ?: ScheduleRepository.DayInfo(dayIndex = i)
                 val isCurrentToday = (i == todayIndex)
                 val isSelected = (effectiveDayIndex == i)
 
