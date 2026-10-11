@@ -78,6 +78,8 @@ class CourseWidgetProvider : AppWidgetProvider() {
 
         private val io = Executors.newSingleThreadExecutor()
         private var observer: ContentObserver? = null
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private var pendingRefreshRunnable: Runnable? = null
 
         // ------------------------------------------------------------ 配置读写
 
@@ -110,32 +112,35 @@ class CourseWidgetProvider : AppWidgetProvider() {
         /**
          * 解析出"这次到底该读哪些日历"。
          *
-         * 候选按可信度排序:用户选择 > 上次成功解析的缓存 > 自动猜。
-         * 逐个用"本周是否真有日程"来验证,**第一个真有数据的才采用**并写入缓存。
-         *
-         * 这样避免两个坑:
-         *  - 每次刷新都重新猜,结果在"正确日历"和"空日历"之间跳变(现象就是
-         *    刚添加时正常、几秒后变成没有课程数据);
-         *  - 猜到一个没有日程的日历却当成成功,界面只显示"没有数据"而无从排查。
+         * 1. 若用户在配置页手动选择过日历，拥有最高且绝对的优先级，直接采用（绝不因本周暂无课而丢弃）。
+         * 2. 若有历史成功解析缓存，优先采用缓存。
+         * 3. 首次启动或无缓存时，通过名称匹配与日程条数自动猜测，猜中后立即写入缓存。
          */
         fun resolveCalendarIds(context: Context, now: Long = System.currentTimeMillis()): List<Long> {
-            val (begin, end) = ScheduleRepository.currentWeekRange(now)
             val user = userSelectedIds(context)
+            if (!user.isNullOrEmpty()) {
+                return user
+            }
+
             val cached = cachedResolvedIds(context)
             val guessed = ScheduleRepository.guessCalendarIds(context, now)
 
-            val candidates = listOfNotNull(user, cached, guessed.takeIf { it.isNotEmpty() })
-                .distinct()
+            val (begin, end) = ScheduleRepository.currentWeekRange(now)
+            val candidates = listOfNotNull(cached, guessed.takeIf { it.isNotEmpty() }).distinct()
 
             for (candidate in candidates) {
                 if (ScheduleRepository.countEvents(context, candidate, begin, end) > 0) {
-                    if (candidate != user) writeIds(context, KEY_RESOLVED_IDS, candidate)
+                    writeIds(context, KEY_RESOLVED_IDS, candidate)
                     return candidate
                 }
             }
 
-            // 都没有数据:优先返回用户选择(便于界面显示"读取的日历"),否则返回缓存/猜测
-            return user ?: cached ?: guessed
+            // 若本周恰逢无课(如假期)，依然保留已有缓存或猜测结果
+            val fallback = cached ?: guessed
+            if (fallback.isNotEmpty()) {
+                writeIds(context, KEY_RESOLVED_IDS, fallback)
+            }
+            return fallback
         }
 
         /** 兼容旧调用。 */
@@ -150,16 +155,15 @@ class CourseWidgetProvider : AppWidgetProvider() {
             io.execute {
                 var fallbackError: Throwable? = null
                 var mainViews: RemoteViews? = null
-                var next = System.currentTimeMillis() + 30 * 60 * 1000
+                var next = System.currentTimeMillis() + 30 * 60 * 1000L
                 try {
                     val calendarIds = calendarIds(context)
                     val now = System.currentTimeMillis()
-                    val today = ScheduleRepository.today(context, calendarIds, now)
-                    val week = ScheduleRepository.week(context, calendarIds, now)
-                    next = ScheduleRepository.nextRefreshAt(context, calendarIds, now)
-                    // 记住当前读的是哪些日历,数据为空时显示出来便于排查
+                    // 一次性加载今日与本周课表，杜绝高频并发 IPC 数据库查询导致锁死
+                    val scheduleData = ScheduleRepository.loadSchedule(context, calendarIds, now)
+                    next = scheduleData.nextRefreshAt
                     val names = ScheduleRepository.calendarNames(context, calendarIds)
-                    mainViews = buildViews(context, today, week, calendarIds, names)
+                    mainViews = buildViews(context, scheduleData.today, scheduleData.week, calendarIds, names)
                 } catch (e: Exception) {
                     Log.e(TAG, "构建小组件内容失败", e)
                     fallbackError = e
@@ -169,7 +173,7 @@ class CourseWidgetProvider : AppWidgetProvider() {
                     .getOrElse { RemoteViews(context.packageName, R.layout.widget_fallback) }
 
                 val refreshAt = next
-                Handler(Looper.getMainLooper()).post {
+                mainHandler.post {
                     for (id in ids) {
                         try {
                             manager.updateAppWidget(id, views)
@@ -281,11 +285,12 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 today.error != null && today.all.isEmpty() ->
                     context.getString(R.string.widget_query_failed_fmt, today.error)
                 today.all.isNotEmpty() -> null
-                // 今天没课:区分"整周都没数据"(多半是没导入/没选对日历)和"今天正好没课"
-                !weekHasData -> context.getString(
-                    R.string.widget_no_data_fmt,
-                    calendarNames.joinToString("、").ifBlank { context.getString(R.string.widget_unknown_calendar) },
-                )
+                // 今天没课:区分"整周都没数据"(假期或未导入)和"今天正好没课"
+                !weekHasData -> if (calendarNames.isNotEmpty()) {
+                    context.getString(R.string.widget_no_data_fmt, calendarNames.joinToString("、"))
+                } else {
+                    context.getString(R.string.widget_need_config)
+                }
                 else -> context.getString(R.string.widget_no_class)
             }
             if (message != null) {
@@ -329,18 +334,19 @@ class CourseWidgetProvider : AppWidgetProvider() {
             val intent = Intent(context, CourseWidgetProvider::class.java).setAction(ACTION_REFRESH)
             val pending = PendingIntent.getBroadcast(context, 0, intent, pendingFlags())
 
+            // 严格确保刷新时间位于未来，严禁设置过去时间引发 AlarmManager 即时自激死循环
+            val safeAt = maxOf(atMillis, System.currentTimeMillis() + 30_000L)
+
             val canBeExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 alarm.canScheduleExactAlarms()
             } else {
                 true
             }
             if (canBeExact) {
-                alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending)
+                alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, safeAt, pending)
             } else {
-                alarm.set(AlarmManager.RTC, atMillis, pending)
+                alarm.set(AlarmManager.RTC, safeAt, pending)
             }
-            // 兜底:5 分钟后再刷一次
-            alarm.set(AlarmManager.RTC, atMillis + 5 * 60 * 1000, pending)
         }
 
         private fun cancelRefresh(context: Context) {
@@ -353,9 +359,13 @@ class CourseWidgetProvider : AppWidgetProvider() {
 
         private fun registerObserver(context: Context) {
             if (observer != null) return
-            val obs = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            val obs = object : ContentObserver(mainHandler) {
                 override fun onChange(selfChange: Boolean) {
-                    refreshAll(context.applicationContext)
+                    // 2 秒防抖，严禁日历数据库高频变动引发雪崩自激刷新
+                    pendingRefreshRunnable?.let { mainHandler.removeCallbacks(it) }
+                    val r = Runnable { refreshAll(context.applicationContext) }
+                    pendingRefreshRunnable = r
+                    mainHandler.postDelayed(r, 2000L)
                 }
             }
             try {
@@ -376,6 +386,8 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 }
             }
             observer = null
+            pendingRefreshRunnable?.let { mainHandler.removeCallbacks(it) }
+            pendingRefreshRunnable = null
         }
 
         private val DAY_LABELS = arrayOf("一", "二", "三", "四", "五", "六", "日")
