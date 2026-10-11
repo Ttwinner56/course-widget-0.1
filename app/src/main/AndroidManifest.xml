@@ -45,5 +45,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 本周课表全景大视图页面 -->
+        <activity
+            android:name=".WeekScheduleActivity"
+            android:exported="true"
+            android:label="@string/week_schedule_title" />
     </application>
 </manifest>

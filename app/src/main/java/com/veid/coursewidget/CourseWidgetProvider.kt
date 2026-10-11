@@ -47,13 +47,23 @@ class CourseWidgetProvider : AppWidgetProvider() {
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
-            Intent.ACTION_MY_PACKAGE_REPLACED,
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                setDisplayDayIndex(context, -1) // 跨天时自动切回今天
+                refreshAll(context)
+            }
+            ACTION_SELECT_DAY -> {
+                val dayIdx = intent.getIntExtra(EXTRA_DAY_INDEX, -1)
+                setDisplayDayIndex(context, dayIdx)
+                refreshAll(context)
+            }
             ACTION_REFRESH -> refreshAll(context)
         }
     }
 
     companion object {
         const val ACTION_REFRESH = "com.veid.coursewidget.REFRESH"
+        const val ACTION_SELECT_DAY = "com.veid.coursewidget.SELECT_DAY"
+        const val EXTRA_DAY_INDEX = "day_index"
 
         private const val TAG = "CourseWidget"
         private const val PREFS = "course_widget"
@@ -61,12 +71,18 @@ class CourseWidgetProvider : AppWidgetProvider() {
         private const val KEY_SELECTED_IDS = "selected_calendar_ids"
         /** 上次验证过确实有数据的日历(缓存) */
         private const val KEY_RESOLVED_IDS = "resolved_calendar_ids"
+        /** 用户在小组件上点选查看的周几下标(-1 为默认看今天, 0..6 为周一到周日) */
+        private const val KEY_DISPLAY_DAY = "display_day_index"
 
         /** 与 widget_course.xml 里静态声明的控件一一对应 */
         private val ROW_IDS = intArrayOf(R.id.row1, R.id.row2, R.id.row3, R.id.row4)
         private val ROW_TIME_IDS = intArrayOf(R.id.row1_time, R.id.row2_time, R.id.row3_time, R.id.row4_time)
         private val ROW_NAME_IDS = intArrayOf(R.id.row1_name, R.id.row2_name, R.id.row3_name, R.id.row4_name)
         private val ROW_ROOM_IDS = intArrayOf(R.id.row1_room, R.id.row2_room, R.id.row3_room, R.id.row4_room)
+        private val CELL_CONTAINER_IDS = intArrayOf(
+            R.id.cell1, R.id.cell2, R.id.cell3, R.id.cell4,
+            R.id.cell5, R.id.cell6, R.id.cell7,
+        )
         private val CELL_DAY_IDS = intArrayOf(
             R.id.cell1_day, R.id.cell2_day, R.id.cell3_day, R.id.cell4_day,
             R.id.cell5_day, R.id.cell6_day, R.id.cell7_day,
@@ -107,6 +123,16 @@ class CourseWidgetProvider : AppWidgetProvider() {
         fun saveCalendarIds(context: Context, ids: List<Long>) {
             writeIds(context, KEY_SELECTED_IDS, ids)
             writeIds(context, KEY_RESOLVED_IDS, ids)
+        }
+
+        fun getDisplayDayIndex(context: Context): Int =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_DISPLAY_DAY, -1)
+
+        fun setDisplayDayIndex(context: Context, dayIndex: Int) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_DISPLAY_DAY, dayIndex)
+                .apply()
         }
 
         /**
@@ -234,34 +260,86 @@ class CourseWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.widget_course)
 
             val now = System.currentTimeMillis()
-            views.setTextViewText(R.id.header_title, context.getString(R.string.widget_title))
-            views.setTextViewText(
-                R.id.header_badge,
-                ScheduleRepository.dateLabel(now) + " · " + ScheduleRepository.timeLabel(now),
-            )
+            val todayIndex = ScheduleRepository.todayIndex(now)
+            val activeDayIndex = getDisplayDayIndex(context)
+            val isViewingToday = (activeDayIndex == -1 || activeDayIndex == todayIndex)
+            val effectiveDayIndex = if (isViewingToday) todayIndex else activeDayIndex
+            val selectedDayInfo = week.getOrNull(effectiveDayIndex)
 
             val noCalendar = calendarIds.isEmpty()
             val weekHasData = week.any { it.count > 0 }
 
-            // 今天要显示哪些课:已结束的也显示(用勾号和浅色区分),但要保证未结束的优先可见。
-            val display = pickTodayRows(today.all, now)
+            if (isViewingToday) {
+                views.setTextViewText(R.id.header_title, context.getString(R.string.widget_title))
+                views.setTextViewText(
+                    R.id.header_badge,
+                    ScheduleRepository.dateLabel(now) + " · " + ScheduleRepository.timeLabel(now),
+                )
+                views.setOnClickPendingIntent(
+                    R.id.header_title,
+                    PendingIntent.getActivity(
+                        context, 100,
+                        ScheduleRepository.dayViewIntent(now),
+                        pendingFlags(),
+                    ),
+                )
+                views.setOnClickPendingIntent(
+                    R.id.header_badge,
+                    PendingIntent.getActivity(
+                        context, 101,
+                        ScheduleRepository.dayViewIntent(now),
+                        pendingFlags(),
+                    ),
+                )
+            } else {
+                val dayLabel = ScheduleRepository.dayIndexLabel(effectiveDayIndex)
+                val dayDate = selectedDayInfo?.dateMillis ?: now
+                views.setTextViewText(
+                    R.id.header_title,
+                    "${dayLabel}课表 (点此回今日)",
+                )
+                views.setTextViewText(
+                    R.id.header_badge,
+                    ScheduleRepository.dateLabel(dayDate) + " · 共 ${selectedDayInfo?.count ?: 0} 节课",
+                )
+                val resetIntent = Intent(context, CourseWidgetProvider::class.java).apply {
+                    action = ACTION_SELECT_DAY
+                    putExtra(EXTRA_DAY_INDEX, -1)
+                }
+                val resetPending = PendingIntent.getBroadcast(context, 110, resetIntent, pendingFlags())
+                views.setOnClickPendingIntent(R.id.header_title, resetPending)
+                views.setOnClickPendingIntent(R.id.header_badge, resetPending)
+            }
 
-            // ---- 今日课程行:逐行设文本与可见性,不用 addView ----
+            // ---- 右上角"周课表"按钮 -> 打开全周课表全景页 ----
+            val weekIntent = Intent(context, WeekScheduleActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            views.setOnClickPendingIntent(
+                R.id.btn_week_view,
+                PendingIntent.getActivity(context, 200, weekIntent, pendingFlags()),
+            )
+
+            // ---- 决定当前展示哪些课程 ----
+            val display: List<ScheduleRepository.ClassEvent> = if (isViewingToday) {
+                pickTodayRows(today.all, now)
+            } else {
+                (selectedDayInfo?.events ?: emptyList()).take(ROW_IDS.size)
+            }
+
+            // ---- 课程行渲染:逐行设文本与可见性,不用 addView ----
             for (i in ROW_IDS.indices) {
                 val event = display.getOrNull(i)
                 if (event == null) {
                     views.setViewVisibility(ROW_IDS[i], View.GONE)
                     continue
                 }
-                val finished = event.end <= now
+                val finished = isViewingToday && (event.end <= now)
                 views.setViewVisibility(ROW_IDS[i], View.VISIBLE)
                 views.setTextViewText(
                     ROW_TIME_IDS[i],
                     ScheduleRepository.timeLabel(event.begin) + "\n" + ScheduleRepository.timeLabel(event.end),
                 )
-                // 已结束的课用文字标记,不用 setTextColor ——
-                // 上色属于 RemoteViews 的"动作",宿主不支持时会让整次更新失败;
-                // 纯文字在所有宿主上都稳。
                 views.setTextViewText(
                     ROW_NAME_IDS[i],
                     if (finished) context.getString(R.string.widget_done_mark) + event.title else event.title,
@@ -282,16 +360,16 @@ class CourseWidgetProvider : AppWidgetProvider() {
             // ---- 空状态 / 错误提示 ----
             val message: String? = when {
                 noCalendar -> context.getString(R.string.widget_need_config)
-                today.error != null && today.all.isEmpty() ->
+                isViewingToday && today.error != null && today.all.isEmpty() ->
                     context.getString(R.string.widget_query_failed_fmt, today.error)
-                today.all.isNotEmpty() -> null
-                // 今天没课:区分"整周都没数据"(假期或未导入)和"今天正好没课"
-                !weekHasData -> if (calendarNames.isNotEmpty()) {
+                display.isNotEmpty() -> null
+                isViewingToday && !weekHasData -> if (calendarNames.isNotEmpty()) {
                     context.getString(R.string.widget_no_data_fmt, calendarNames.joinToString("、"))
                 } else {
                     context.getString(R.string.widget_need_config)
                 }
-                else -> context.getString(R.string.widget_no_class)
+                isViewingToday -> context.getString(R.string.widget_no_class)
+                else -> "${ScheduleRepository.dayIndexLabel(effectiveDayIndex)}暂无课程安排"
             }
             if (message != null) {
                 views.setViewVisibility(R.id.today_empty, View.VISIBLE)
@@ -300,27 +378,36 @@ class CourseWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(R.id.today_empty, View.GONE)
             }
 
-            // ---- 本周概览 ----
-            // 每格:上面是星期,下面是当天课程数。
-            // 没课显示 "·" 而不是 "—":因为"一"这个字本身就是一横,用破折号会看混。
-            // 今天那一列用 "◉" 标出来(同样只用文字,不用 setTextColor)
-            val todayIndex = ScheduleRepository.todayIndex()
+            // ---- 本周概览 (7 格点击切换) ----
             for (i in 0..6) {
                 val info = week.getOrNull(i) ?: ScheduleRepository.DayInfo(0, null)
-                val isToday = i == todayIndex
-                views.setTextViewText(CELL_DAY_IDS[i], if (isToday) "◉" else DAY_LABELS[i])
+                val isCurrentToday = (i == todayIndex)
+                val isSelected = (effectiveDayIndex == i)
+
+                val dayText = when {
+                    isSelected && isCurrentToday -> "[今]"
+                    isSelected -> "[${DAY_LABELS[i]}]"
+                    isCurrentToday -> "◉"
+                    else -> DAY_LABELS[i]
+                }
+
+                views.setTextViewText(CELL_DAY_IDS[i], dayText)
                 views.setTextViewText(CELL_COUNT_IDS[i], if (info.count == 0) "·" else info.count.toString())
+
+                // 绑定点击事件: 点击该格子切换小组件展示该天课程
+                val dayClickIntent = Intent(context, CourseWidgetProvider::class.java).apply {
+                    action = ACTION_SELECT_DAY
+                    putExtra(EXTRA_DAY_INDEX, i)
+                }
+                val cellPending = PendingIntent.getBroadcast(
+                    context,
+                    1000 + i,
+                    dayClickIntent,
+                    pendingFlags(),
+                )
+                views.setOnClickPendingIntent(CELL_CONTAINER_IDS[i], cellPending)
             }
 
-            // 点标题 -> 打开今天的日历日视图
-            views.setOnClickPendingIntent(
-                R.id.header_title,
-                PendingIntent.getActivity(
-                    context, 100,
-                    ScheduleRepository.dayViewIntent(now),
-                    pendingFlags(),
-                ),
-            )
             return views
         }
 

@@ -39,8 +39,14 @@ object ScheduleRepository {
         val error: String? = null,
     )
 
-    /** 一周里的某一天:课程数 + 当天第一节课的开始时间(没有课则为 null)。 */
-    data class DayInfo(val count: Int, val firstStart: Long?)
+    /** 一周里的某一天:下标(0..6)、当天零点时间、课程数、第一节课时间、当天的全部课程列表。 */
+    data class DayInfo(
+        val dayIndex: Int = 0,
+        val dateMillis: Long = 0L,
+        val count: Int = 0,
+        val firstStart: Long? = null,
+        val events: List<ClassEvent> = emptyList(),
+    )
 
     // ---------------------------------------------------------------- 时区与时间
 
@@ -84,6 +90,23 @@ object ScheduleRepository {
         val c = calendar()
         c.timeInMillis = timeMillis
         return "${c.get(Calendar.MONTH) + 1}月${c.get(Calendar.DAY_OF_MONTH)}日"
+    }
+
+    fun dayIndexLabel(dayIndex: Int): String = when (dayIndex) {
+        0 -> "周一"
+        1 -> "周二"
+        2 -> "周三"
+        3 -> "周四"
+        4 -> "周五"
+        5 -> "周六"
+        6 -> "周日"
+        else -> "周一"
+    }
+
+    fun dayOfWeekLabel(timeMillis: Long): String {
+        val c = calendar()
+        c.timeInMillis = timeMillis
+        return dayIndexLabel((c.get(Calendar.DAY_OF_WEEK) + 5) % 7)
     }
 
     // ---------------------------------------------------------------- 日历来源
@@ -270,17 +293,24 @@ object ScheduleRepository {
         val upcoming = todayEvents.filter { it.end > now }
         val todayInfo = TodayInfo(todayEvents, upcoming, todayEvents.size - upcoming.size, lastQueryError)
 
-        val days = MutableList(7) { DayInfo(0, null) }
+        val dayBuckets = Array(7) { mutableListOf<ClassEvent>() }
         for (e in allWeekEvents) {
-            val dayStartOfEvent = startOfDay(e.begin)
-            val shift = ((dayStartOfEvent - weekBegin) / DAY_MILLIS).toInt()
-            if (shift in 0..6) {
-                val old = days[shift]
-                days[shift] = DayInfo(
-                    count = old.count + 1,
-                    firstStart = old.firstStart?.let { minOf(it, e.begin) } ?: e.begin,
-                )
+            val c = calendar().apply { timeInMillis = e.begin }
+            val dayIdx = (c.get(Calendar.DAY_OF_WEEK) + 5) % 7 // 周一 -> 0 ... 周日 -> 6
+            if (dayIdx in 0..6) {
+                dayBuckets[dayIdx].add(e)
             }
+        }
+
+        val days = (0..6).map { i ->
+            val sorted = dayBuckets[i].sortedBy { it.begin }
+            DayInfo(
+                dayIndex = i,
+                dateMillis = weekBegin + i * DAY_MILLIS,
+                count = sorted.size,
+                firstStart = sorted.firstOrNull()?.begin,
+                events = sorted,
+            )
         }
 
         val tomorrow = dayStart + DAY_MILLIS
