@@ -7,7 +7,7 @@
 <!-- LATEST:START -->
 **最新版本：`v0.1.7-beta`**（beta）
 
-➡️ [点此下载最新 APK](https://github.com/Ttwinner56/course-widget-0.1/releases/latest)
+➡️ [点此下载 APK](https://github.com/Ttwinner56/course-widget-0.1/releases/latest)
 <!-- LATEST:END -->
 
 ```text
